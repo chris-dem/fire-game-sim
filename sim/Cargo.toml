@@ -1,0 +1,15 @@
+[package]
+name = "sim"
+version = "0.1.0"
+edition = "2021"
+authors = ["Christos Demetriou"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# krabmaga = "0.2.0"
+krabmaga = {git = "https://github.com/krABMaga/krABMaga"}
+
+[features]
+visualization = ["krabmaga/visualization"]
+visualization_wasm = ["krabmaga/visualization_wasm"]
