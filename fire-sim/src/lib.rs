@@ -1,3 +1,9 @@
+#[derive(Debug, Clone, Copy)]
+enum FireCell<T> {
+    OnFire,
+    Else(T),
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

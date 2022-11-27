@@ -1,5 +1,5 @@
 // Global imports (needed for the simulation to run)
-use crate::model::sea::Sea;
+// use crate::model::sea::Sea;
 mod model;
 
 #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
@@ -24,14 +24,14 @@ pub static TOROIDAL: bool = true;
 // Main used when only the simulation should run, without any visualization.
 #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
 fn main() {
-    let step = 100;
+    // let step = 100;
 
-    let num_agents = 20;
-    let dim: (f32, f32) = (400., 400.);
+    // let num_agents = 20;
+    // let dim: (f32, f32) = (400., 400.);
 
-    let state = Sea::new(dim, num_agents);
+    // let state = Sea::new(dim, num_agents);
 
-    simulate!(state, step, 10);
+    // simulate!(state, step, 10);
 }
 
 // Main used when a visualization feature is applied.
