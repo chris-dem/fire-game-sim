@@ -1,17 +1,13 @@
-use std::cell::RefCell;
-use std::cmp::Eq;
-use std::fmt::{self, Display};
+use mockall::predicate::*;
+use mockall::*;
+use rand_derive2::RandGen;
+use std::fmt;
 use std::hash::{Hash, Hasher};
-
-use krabmaga::engine::{
-    // fields::dense_number_grid_2d::DenseNumberGrid2D,
-    fields::dense_number_grid_2d::DenseNumberGrid2D,
-    location::Int2D,
-    schedule::Schedule,
-    state::State,
-};
-
-#[derive(Debug, Clone, Copy)]
+/// Cell Type of the simulation. This means the type of the current cell.
+/// For now, treating the fire model and the agent model in the same.
+///
+/// TODO Determine how addition of different fields might affect the situation
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, RandGen)]
 pub enum CellType {
     Fire,
     Empty,
@@ -23,10 +19,13 @@ impl fmt::Display for CellType {
     }
 }
 
+/// Cell struct for the simulation. Holds state of the cell and id.
+/// Since I am planning to use a dense number grid, Cell has to derive:
+/// Debug Clone Copy Hash PartialEq Eq Display
 #[derive(Debug, Clone, Copy)]
 pub struct Cell {
-    state: CellType,
-    id: usize,
+    pub state: CellType,
+    pub id: usize,
 }
 
 impl Hash for Cell {
@@ -47,19 +46,3 @@ impl fmt::Display for Cell {
         write!(f, "{} status {}", self.id, self.state)
     }
 }
-
-pub InitialConfig
-
-pub struct CellGrid {
-    pub step: u64,
-    pub grid: DenseNumberGrid2D<Cell>,
-    pub dim : (f32, f32),
-    pub initial_config : ()
-}
-
-impl CellGrid {
-    pub fn new(dim : (f32,f32),)
-}
-
-
-
