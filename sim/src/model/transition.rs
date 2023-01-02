@@ -1,5 +1,8 @@
 use crate::model::{cell::CellType, fire_spread::FireRules};
+use mockall::*;
+use mockall::predicate::*;
 
+#[automock]
 pub trait Transition {
     fn transition(&self, curr_cell: &CellType, neigh: &[CellType]) -> f32;
 }
@@ -25,7 +28,7 @@ mod tests {
     use super::*;
     use approx::assert_relative_eq;
     use rand::prelude::*;
-
+    
     #[test]
     fn testing_fire_rules_on_fire_cell_constant_test() {
         let neigh = [

@@ -1,6 +1,10 @@
+use rand::distributions::Bernoulli;
 use rand_derive2::RandGen;
+use rand::prelude::*;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+
+use super::transition::Transition;
 /// Cell Type of the simulation. This means the type of the current cell.
 /// For now, treating the fire model and the agent model in the same.
 ///
@@ -56,14 +60,32 @@ impl fmt::Display for Cell {
 }
 
 impl Cell {
-    fn flip(&mut self) {}
+    fn spread(&mut self, agent : impl Transition, neigh : &[CellType], rand : &mut impl Rng) {
+        // let dist = Bernoulli::new(agent.transition(&self.state, neigh).into()).unwrap();
+        // if dist.sample(rand)  {
+        //     self.state = CellType::Fire;
+        // }
+        todo!()
+    }
 }
 
 // #[cfg(tests)]
 mod tests {
     use super::*;
-
+    use crate::model::transition::*;
+    use rand_chacha::{self, ChaCha12Rng};
     fn flip_state() {
-        todo!()
+        let rng = ChaCha12Rng::from_seed(Default::default());
+
+        let mut spread_handler = MockTransition::new();
+        let exec = spread_handler
+                                        .expect_transition()
+                                        .once()
+                                        .return_const(0.7);
+        
+        let cs = [CellType::generate_random() ; 5]; 
+        let mut current_cell = Cell::new(5);
+        current_cell.spread(exec, &cs, &mut rng);
+
     }
 }
