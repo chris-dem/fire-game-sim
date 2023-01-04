@@ -60,12 +60,33 @@ impl fmt::Display for Cell {
 }
 
 impl Cell {
+    /// Flip the state of the cell based on the Transition agent, its neighbours and a random factor
+    /// # Argument
+    /// * `agent` - Agent that implements the transition mechanism
+    /// * `neigh` - Reference to the list of neighbours of the current cell
+    /// * `rand`  - Structure that implements the Rng trait to generate random values
+    /// # Example
+    /// ```
+    /// let mut rng = ChaCha12Rng::from_seed(Default::default());
+    /// let mut spread_handler = MockTransition::new();
+    /// spread_handler
+    ///     .expect_transition()
+    ///     .once()
+    ///     .return_const(0.7);
+    ///         
+    /// let cs = [CellType::generate_random() ; 5]; 
+    /// let mut current_cell = Cell::new(5);
+    /// current_cell.spread(spread_handler, &cs, &mut rng); // ChaCha generates fixed random numbers, will always be true for this example
+    /// assert_eq!(current_cell.state, CellType::Fire)
+    /// ```
     fn spread(&mut self, agent : impl Transition, neigh : &[CellType], rand : &mut impl Rng) {
-        // let dist = Bernoulli::new(agent.transition(&self.state, neigh).into()).unwrap();
-        // if dist.sample(rand)  {
-        //     self.state = CellType::Fire;
-        // }
-        todo!()
+        if self.state == CellType::Fire { // If the cell type is empty, just return
+            return ();
+        }
+        let dist = Bernoulli::new(agent.transition(&self.state, neigh).into()).unwrap();
+        if dist.sample(rand)  {
+            self.state = CellType::Fire;
+        }
     }
 }
 
@@ -74,18 +95,32 @@ mod tests {
     use super::*;
     use crate::model::transition::*;
     use rand_chacha::{self, ChaCha12Rng};
-    fn flip_state() {
-        let rng = ChaCha12Rng::from_seed(Default::default());
-
+    
+    #[test]
+    fn test_spread_expect_to_convert_cell_to_fire() {
+        let mut rng = ChaCha12Rng::from_seed(Default::default());
         let mut spread_handler = MockTransition::new();
-        let exec = spread_handler
-                                        .expect_transition()
-                                        .once()
-                                        .return_const(0.7);
-        
+        spread_handler
+            .expect_transition()
+            .once()
+            .return_const(0.7);
         let cs = [CellType::generate_random() ; 5]; 
         let mut current_cell = Cell::new(5);
-        current_cell.spread(exec, &cs, &mut rng);
-
+        current_cell.spread(spread_handler, &cs, &mut rng);
+        assert_eq!(current_cell.state, CellType::Fire)
+    }
+    
+    #[test]
+    fn test_spread_expect_to_not_affect_cell() {
+        let mut rng = ChaCha12Rng::from_seed(Default::default());
+        let mut spread_handler = MockTransition::new();
+        spread_handler
+            .expect_transition()
+            .never();
+        let cs = [CellType::generate_random() ; 5]; 
+        let mut current_cell = Cell::new(5);
+        current_cell.state = CellType::Fire;
+        current_cell.spread(spread_handler, &cs, &mut rng);
+        assert_eq!(current_cell.state, CellType::Fire)
     }
 }
