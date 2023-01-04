@@ -31,6 +31,10 @@ pub struct Cell {
 }
 
 impl Cell {
+    /// Create a cell based on an id. By default the cell is empty
+    /// # Argument
+    /// * `id` - id of new cell
+    /// 
     fn new(id: usize) -> Self {
         Self {
             state: CellType::Empty,

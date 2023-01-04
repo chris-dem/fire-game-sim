@@ -17,8 +17,12 @@ impl Agent for FireRules {
     /// Should implement movement
     /// Might include in the future mutation of other states
     fn step(&mut self, state: &mut dyn State) {
-        // let real_state = state.as_any().downcast_ref::<CellGrid>().unwrap();
-        todo!("Step for agent not implemented")
+        let real_state = state.as_any().downcast_ref::<CellGrid>().unwrap();
+        for r in 0..real_state.dim.0  as usize{
+            for c in 0..real_state.dim.1 as usize {
+
+            }
+        }
     }
 }
 
