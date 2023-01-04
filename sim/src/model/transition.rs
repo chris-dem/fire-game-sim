@@ -3,7 +3,7 @@ use mockall::*;
 use mockall::predicate::*;
 
 #[automock]
-pub trait Transition {
+pub trait Transition { 
     fn transition(&self, curr_cell: &CellType, neigh: &[CellType]) -> f32;
 }
 

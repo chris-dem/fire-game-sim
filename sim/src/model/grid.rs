@@ -1,5 +1,7 @@
 use crate::model::cell::*;
 use krabmaga::engine::fields::dense_number_grid_2d::DenseNumberGrid2D;
+use krabmaga::thread_rng;
+use rand::RngCore;
 use std::cmp::Eq;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -22,6 +24,7 @@ pub struct InitialConfig;
 /// TODO Implememnt state
 pub struct CellGrid {
     pub step: u64,
+    pub rng: Box<dyn RngCore>,
     pub grid: DenseNumberGrid2D<Cell>,
     pub dim: (f32, f32),
     pub initial_config: InitialConfig,
@@ -31,6 +34,7 @@ impl Default for CellGrid {
     fn default() -> Self {
         Self {
             step: 0,
+            rng : Box::new(thread_rng()),
             grid: DenseNumberGrid2D::new(DEFAULT_WIDTH, DEFAULT_HEIGHT),
             dim: (DEFAULT_WIDTH as f32, DEFAULT_HEIGHT as f32),
             initial_config: Default::default(),
@@ -42,6 +46,7 @@ impl Default for CellGrid {
 #[derive(Default)]
 pub struct CellGridBuilder {
     step: u64,
+    rng : Option<Box<dyn rand::RngCore>>,
     grid: Option<DenseNumberGrid2D<Cell>>,
     dim: Option<(f32, f32)>,
     initial_config: Option<InitialConfig>,
@@ -60,13 +65,19 @@ impl CellGridBuilder {
         self
     }
 
-    pub fn build(&self) -> CellGrid {
+    pub fn build(&mut self) -> CellGrid {
         let dim = self
             .dim
             .clone()
             .unwrap_or((DEFAULT_WIDTH as f32, DEFAULT_HEIGHT as f32));
+        let rng  = if let Some(rng) = self.rng.take() {
+            rng
+        } else {
+            Box::new(thread_rng())
+        };
         CellGrid {
             step: self.step,
+            rng,
             dim,
             grid: DenseNumberGrid2D::new(dim.0 as i32, dim.1 as i32),
             initial_config: self.initial_config.clone().unwrap_or_default(),

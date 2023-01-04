@@ -6,6 +6,8 @@ use crate::model::cell::Cell;
 
 use crate::model::{cell::CellType, grid::CellGrid};
 
+use super::transition::*;
+
 #[derive(Clone, Copy)]
 pub struct FireRules {
     pub id: u32,
@@ -17,11 +19,30 @@ impl Agent for FireRules {
     /// Should implement movement
     /// Might include in the future mutation of other states
     fn step(&mut self, state: &mut dyn State) {
-        let real_state = state.as_any().downcast_ref::<CellGrid>().unwrap();
-        for r in 0..real_state.dim.0  as usize{
-            for c in 0..real_state.dim.1 as usize {
-
+        let state = state.as_any_mut().downcast_mut::<CellGrid>().unwrap();
+        let mut updated: Vec<(Int2D, usize)> = Vec::new();
+        // let vals
+        for r in 0..state.dim.0 as i32 {
+            for c in 0..state.dim.1 as i32 {
+                let cell = state.grid.get_value(&Int2D { x: r, y: c }).unwrap();
+                let mut n = Vec::with_capacity(8);
+                for i in -1..=1 {
+                    for j in -1..=1 {
+                        if i == 0 && j == 0 {
+                            continue;
+                        }
+                        if let Some(c) = state.grid.get_value(&Int2D { x: r + i, y: c + j }) {
+                            n.push(c.state);
+                        }
+                    }
+                }
+                if cell.spread(self, &n[..], state.rng.as_mut()) {
+                    updated.push((Int2D { x: r, y: c }, cell.id));
+                }
             }
+        }
+        for (pos, id) in updated {
+            state.grid.set_value_location(Cell::new_with_fire(id), &pos)
         }
     }
 }
@@ -55,4 +76,3 @@ impl PartialEq for FireRules {
         self.id == other.id
     }
 }
-
