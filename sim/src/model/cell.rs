@@ -97,7 +97,7 @@ impl Cell {
     /// assert!(result)
     /// ```
     pub fn spread<T: Rng + ?Sized>(
-        &self,
+        &mut self,
         agent: &impl Transition,
         neigh: &[CellType],
         rng: &mut T,
@@ -126,6 +126,16 @@ mod tests {
         let mut current_cell = Cell::new(5);
         let result = current_cell.spread(&spread_handler, &cs, &mut rng);
         assert!(result)
+    }
+    #[test]
+    fn test_spread_expect_to_not_convert_cell_to_fire() {
+        let mut rng = ChaCha12Rng::from_seed(Default::default());
+        let mut spread_handler = MockTransition::new();
+        spread_handler.expect_transition().once().return_const(0.);
+        let cs = [CellType::generate_random(); 5];
+        let mut current_cell = Cell::new(5);
+        let result = current_cell.spread(&spread_handler, &cs, &mut rng);
+        assert!(!result)
     }
 
     #[test]
