@@ -1,4 +1,4 @@
-use crate::model::cell::Cell;
+use crate::model::cell::{Cell, CellType};
 use crate::model::state::CellGrid;
 use krabmaga::bevy::ecs::component::TableStorage;
 use krabmaga::bevy::prelude::Component;
@@ -13,12 +13,16 @@ impl Component for Cell {
 impl BatchRender<CellGrid> for DenseNumberGrid2D<Cell> {
     fn get_pixel(&self, loc: &Int2D) -> [u8; 4] {
         match self.get_value(loc) {
-            None | Some(Cell)
+            None => [0u8; 4],
+            Some(c) => match c.state {
+                CellType::Empty => [191, 191, 191, 255],
+                CellType::Fire => [210, 48, 8, 255],
+            },
         }
     }
 
     fn get_dimensions(&self) -> (u32, u32) {
-        (800, 600)
+        (self.width as u32, self.height as u32)
     }
 
     fn get_layer(&self) -> f32 {

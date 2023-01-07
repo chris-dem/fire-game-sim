@@ -1,20 +1,20 @@
-use std::borrow::BorrowMut;
-use std::cell::RefCell;
-
 use crate::model::cell::*;
+use itertools::Itertools;
 use krabmaga::engine::fields::field::Field;
 use krabmaga::engine::state::State;
 use krabmaga::engine::{fields::dense_number_grid_2d::DenseNumberGrid2D, location::Int2D};
 use krabmaga::thread_rng;
 use rand::RngCore;
+use std::borrow::BorrowMut;
+use std::cell::RefCell;
 
 use super::fire_spread::FireRules;
 use super::transition::Transition;
 
 /// Default Height of the room. Plus 1 for wall
-pub const DEFAULT_HEIGHT: i32 = 51;
+pub const DEFAULT_HEIGHT: u32 = 51;
 /// Default Width of the room. Plus 1 for wall
-pub const DEFAULT_WIDTH: i32 = 51;
+pub const DEFAULT_WIDTH: u32 = 51;
 
 /// Initial Configuration of the simulation struct. Will be used to import the map or any other additional information
 /// such as parameters
@@ -31,7 +31,7 @@ pub struct InitialConfig {
 pub struct CellGrid {
     pub step: u64,
     pub grid: DenseNumberGrid2D<Cell>,
-    pub dim: (f32, f32),
+    pub dim: (u32, u32),
     pub initial_config: InitialConfig,
 }
 
@@ -39,8 +39,8 @@ impl Default for CellGrid {
     fn default() -> Self {
         Self {
             step: 0,
-            grid: DenseNumberGrid2D::new(DEFAULT_WIDTH, DEFAULT_HEIGHT),
-            dim: (DEFAULT_WIDTH as f32, DEFAULT_HEIGHT as f32),
+            grid: DenseNumberGrid2D::new(DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
+            dim: (DEFAULT_WIDTH, DEFAULT_HEIGHT),
             initial_config: Default::default(),
         }
     }
@@ -62,7 +62,7 @@ impl CellGrid {
                 },
             )
         }
-        self.grid.lazy_update();
+        // self.grid.update();
     }
 
     #[cfg(any(feature = "visualization", feature = "visualization_wasm"))]
@@ -71,6 +71,7 @@ impl CellGrid {
         for x in 0..self.dim.0 as i32 {
             for y in 0..self.dim.1 as i32 {
                 let mut n = Vec::with_capacity(8);
+                //         println!("{x} {y}");
                 let mut cell = self.grid.get_value(&Int2D { x, y }).unwrap();
                 for i in -1..=1 {
                     for j in -1..=1 {
@@ -137,12 +138,8 @@ impl CellGrid {
 }
 
 impl State for CellGrid {
-    fn update(&mut self, _step: u64) {
+    fn update(&mut self, step: u64) {
         self.grid.lazy_update();
-    }
-
-    fn after_step(&mut self, _schedule: &mut krabmaga::engine::schedule::Schedule) {
-        self.step += 1;
     }
 
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
@@ -167,7 +164,7 @@ impl State for CellGrid {
     }
 
     fn init(&mut self, schedule: &mut krabmaga::engine::schedule::Schedule) {
-        self.step = 0;
+        self.reset();
         self.set_intial();
         let fire_rules = FireRules {
             spread: self.initial_config.fire_spread,
@@ -230,6 +227,7 @@ mod tests {
             })
             .build();
         grid.set_intial();
+        grid.grid.lazy_update();
         let mut fire_agent = MockTransition::new();
         fire_agent
             .expect_transition()
@@ -325,6 +323,7 @@ mod tests {
             })
             .build();
         grid.set_intial();
+        grid.grid.lazy_update();
         let mut fire_agent = MockTransition::new();
         fire_agent
             .expect_transition()

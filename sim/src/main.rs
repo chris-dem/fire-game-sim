@@ -39,19 +39,39 @@ fn main() {
 fn main() {
     // Initialize the simulation and its visualization here.
 
+    use krabmaga::{
+        bevy::prelude::IntoSystem, engine::fields::dense_number_grid_2d::DenseNumberGrid2D,
+        visualization::fields::number_grid_2d::BatchRender,
+    };
     use model::state::CellGrid;
 
-    use crate::model::state_builder::CellGridBuilder;
+    use crate::model::{
+        cell::Cell,
+        state::{InitialConfig, DEFAULT_HEIGHT, DEFAULT_WIDTH},
+        state_builder::CellGridBuilder,
+    };
 
-    let num_agents = 10;
-    let dim: (f32, f32) = (400., 400.);
+    let w = 50;
+    let h = 50;
+    let mut map: Vec<Cell> = (0..w * h).map(|c| Cell::new(c as usize)).collect();
+    map[0] = Cell::new_with_fire(0);
 
-    todo!("Implement")
-    // let state = CellGridBuilder::new(dim, num_agents);
-    // Visualization::default()
-    //     .with_window_dimensions(800., 800.)
-    //     .with_simulation_dimensions(dim.0, dim.1)
-    //     .with_background_color(Color::BLACK)
-    //     .with_name("Template")
-    //     .start::<SeaVis, Sea>(SeaVis, state);
+    let init = InitialConfig {
+        fire_spread: 0.7,
+        initial_grid: map,
+    };
+
+    let state = CellGridBuilder::default()
+        .initial_config(init)
+        .dim(w, h)
+        .build();
+
+    let mut app = Visualization::default()
+        .with_window_dimensions(800., 600.)
+        .with_simulation_dimensions(1.5 * w as f32, 1.5 * h as f32)
+        .with_background_color(Color::BLACK)
+        .with_name("Template")
+        .setup::<CellGridVis, CellGrid>(CellGridVis, state);
+    app.add_system(DenseNumberGrid2D::batch_render.system());
+    app.run()
 }

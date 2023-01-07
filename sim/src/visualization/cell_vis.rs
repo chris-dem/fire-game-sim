@@ -9,6 +9,7 @@ use krabmaga::visualization::asset_handle_factory::AssetHandleFactoryResource;
 use krabmaga::visualization::fields::number_grid_2d::BatchRender;
 // use krabmaga::visualization::fields::object_grid_2d::RenderObjectGrid2D;
 use krabmaga::visualization::simulation_descriptor::SimulationDescriptor;
+use krabmaga::visualization::visualization_state::VisualizationState;
 // use krabmaga::visualization::visualization_state::VisualizationState;
 
 #[derive(Clone)]
@@ -23,14 +24,37 @@ impl CellGridVis {
         commands: &mut Commands,
         sim: &mut SimulationDescriptor,
     ) {
-        state.grid.render(sprite_render_factory, commands, sim);
+        state
+            .grid
+            .render(&mut *sprite_render_factory, commands, sim);
     }
 }
 
-// impl VisualizationState<CellGrid> for CellGridVis {
-//     fn on_init(
-//         &self
-//         commands : &mut Commands,
-//         _sprite_factory : &mut AssetHandleFactoryResource
-//     )
-// }
+impl VisualizationState<CellGrid> for CellGridVis {
+    fn on_init(
+        &self,
+        commands: &mut Commands,
+        sprite_render_factory: &mut AssetHandleFactoryResource,
+        state: &mut CellGrid,
+        schedule: &mut krabmaga::engine::schedule::Schedule,
+        sim: &mut SimulationDescriptor,
+    ) {
+        Self::generate_field(&state, sprite_render_factory, commands, sim);
+    }
+
+    fn get_agent_render(
+        &self,
+        agent: &Box<dyn krabmaga::engine::agent::Agent>,
+        state: &CellGrid,
+    ) -> Option<Box<dyn krabmaga::visualization::agent_render::AgentRender>> {
+        None
+    }
+
+    fn get_agent(
+        &self,
+        agent_render: &Box<dyn krabmaga::visualization::agent_render::AgentRender>,
+        state: &Box<&dyn krabmaga::engine::state::State>,
+    ) -> Option<Box<dyn krabmaga::engine::agent::Agent>> {
+        None
+    }
+}
