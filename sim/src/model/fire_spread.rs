@@ -3,10 +3,10 @@ use krabmaga::engine::{agent::Agent, location::Int2D, schedule::Schedule, state:
 use std::hash::{Hash, Hasher};
 
 use crate::model::cell::Cell;
+use crate::model::state::CellGrid;
+use krabmaga::rand as krand;
 
-use crate::model::{cell::CellType, grid::CellGrid};
-
-use super::transition::*;
+// use super::transition::*;
 
 #[derive(Clone, Copy)]
 pub struct FireRules {
@@ -15,11 +15,12 @@ pub struct FireRules {
 }
 
 impl Agent for FireRules {
-    /// TODO
     /// Should implement movement
     /// Might include in the future mutation of other states
     fn step(&mut self, state: &mut dyn State) {
         let state = state.as_any_mut().downcast_mut::<CellGrid>().unwrap();
+        let mut rng = krand::thread_rng();
+        state.fire_step(self, &mut rng);
     }
 }
 

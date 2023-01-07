@@ -16,5 +16,6 @@ rand_chacha = "0.3.1"
 rand_derive2 = "0.1.18"
 
 [features]
+default = ["visualization"]
 visualization = ["krabmaga/visualization"]
 visualization_wasm = ["krabmaga/visualization_wasm"]
