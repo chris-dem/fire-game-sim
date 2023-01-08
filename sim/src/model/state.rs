@@ -1,12 +1,8 @@
 use crate::model::cell::*;
-use itertools::Itertools;
 use krabmaga::engine::fields::field::Field;
 use krabmaga::engine::state::State;
 use krabmaga::engine::{fields::dense_number_grid_2d::DenseNumberGrid2D, location::Int2D};
-use krabmaga::thread_rng;
 use rand::RngCore;
-use std::borrow::BorrowMut;
-use std::cell::RefCell;
 
 use super::fire_spread::FireRules;
 use super::transition::Transition;
@@ -20,7 +16,7 @@ pub const DEFAULT_WIDTH: u32 = 51;
 /// such as parameters
 #[derive(Debug, Default, Clone)]
 pub struct InitialConfig {
-    pub initial_grid: Vec<Cell>,
+    pub initial_grid: Vec<CellType>,
     pub fire_spread: f32,
 }
 
@@ -30,7 +26,7 @@ pub struct InitialConfig {
 /// Holds current step size, grid, dimensions and initial configuration
 pub struct CellGrid {
     pub step: u64,
-    pub grid: DenseNumberGrid2D<Cell>,
+    pub grid: DenseNumberGrid2D<CellType>,
     pub dim: (u32, u32),
     pub initial_config: InitialConfig,
 }
@@ -71,8 +67,7 @@ impl CellGrid {
         for x in 0..self.dim.0 as i32 {
             for y in 0..self.dim.1 as i32 {
                 let mut n = Vec::with_capacity(8);
-                //         println!("{x} {y}");
-                let mut cell = self.grid.get_value(&Int2D { x, y }).unwrap();
+                let cell = self.grid.get_value(&Int2D { x, y }).unwrap();
                 for i in -1..=1 {
                     for j in -1..=1 {
                         if (i == 0 && j == 0)
@@ -82,12 +77,12 @@ impl CellGrid {
                             continue;
                         }
                         if let Some(c) = self.grid.get_value(&Int2D { x: x + i, y: y + j }) {
-                            n.push(c.state);
+                            n.push(c);
                         }
                     }
                 }
                 if cell.spread(fire_agent, &n[..], rng) {
-                    updated.push((Int2D { x, y }, Cell::new_with_fire(cell.id)));
+                    updated.push((Int2D { x, y }, CellType::Fire));
                 } else {
                     updated.push((Int2D { x, y }, cell));
                 }
@@ -105,7 +100,7 @@ impl CellGrid {
     /// `fire_agent` - Agent that implements the Transition trait. Will be responsbilee for the fire spread
     ///
     pub fn fire_step(&mut self, fire_agent: &impl Transition, rng: &mut impl RngCore) {
-        let updated: RefCell<Vec<(Int2D, Cell)>> = RefCell::new(Vec::new());
+        let updated: RefCell<Vec<(Int2D, CellType)>> = RefCell::new(Vec::new());
         let rng = RefCell::new(thread_rng());
         self.grid.iter_values(|&Int2D { x, y }, cell| {
             let mut n = Vec::with_capacity(8);
@@ -118,16 +113,14 @@ impl CellGrid {
                         continue;
                     }
                     if let Some(c) = self.grid.get_value(&Int2D { x: x + i, y: y + j }) {
-                        n.push(c.state);
+                        n.push(c);
                     }
                 }
             }
             if cell.spread(fire_agent, &n[..], &mut *rng.borrow_mut()) {
-                updated
-                    .borrow_mut()
-                    .push((Int2D { x, y }, Cell::new_with_fire(cell.id)));
+                updated.borrow_mut().push((Int2D { x, y }, CellType::Fire));
             } else {
-                updated.borrow_mut().push((Int2D { x, y }, *cell));
+                updated.borrow_mut().push((Int2D { x, y }, cell));
             }
         });
 
@@ -139,6 +132,7 @@ impl CellGrid {
 
 impl State for CellGrid {
     fn update(&mut self, step: u64) {
+        self.step = step;
         self.grid.lazy_update();
     }
 
@@ -170,27 +164,24 @@ impl State for CellGrid {
             spread: self.initial_config.fire_spread,
             id: 1,
         };
+        self.grid.update();
         schedule.schedule_repeating(Box::new(fire_rules), 0., 0);
     }
 }
 
-#[cfg(all(
-    test,
-    not(any(feature = "visualization", feature = "visualization_wasm"))
-))]
+#[cfg(all(test, any(feature = "visualization", feature = "visualization_wasm")))]
 mod tests {
-    use std::cell::RefCell;
 
     use super::*;
     use crate::model::state_builder::CellGridBuilder;
     use crate::model::transition::MockTransition;
+    use itertools::Itertools;
     use krabmaga::engine::fields::field::Field;
     use mockall::predicate;
     use rand::SeedableRng;
     use rand_chacha::ChaCha12Rng;
 
     #[test]
-    #[ignore = "reason"]
     fn test_fire_step_with_high_spread() {
         let mut grid = CellGridBuilder::default()
             .dim(5, 5)
@@ -198,35 +189,35 @@ mod tests {
             .initial_config(InitialConfig {
                 fire_spread: 0.7,
                 initial_grid: vec![
-                    Cell::new_with_fire(1),
-                    Cell::new(2),
-                    Cell::new(3),
-                    Cell::new(4),
-                    Cell::new(5),
-                    Cell::new(6),
-                    Cell::new(7),
-                    Cell::new(8),
-                    Cell::new(9),
-                    Cell::new(10),
-                    Cell::new(11),
-                    Cell::new(12),
-                    Cell::new(13),
-                    Cell::new(14),
-                    Cell::new(15),
-                    Cell::new(16),
-                    Cell::new(17),
-                    Cell::new(18),
-                    Cell::new(19),
-                    Cell::new(20),
-                    Cell::new(21),
-                    Cell::new(22),
-                    Cell::new(23),
-                    Cell::new(24),
-                    Cell::new(25),
+                    CellType::Fire,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
                 ],
             })
             .build();
-        grid.set_intial();
+        grid.set_intial(); // Create initial config and move values
         grid.grid.lazy_update();
         let mut fire_agent = MockTransition::new();
         fire_agent
@@ -251,40 +242,44 @@ mod tests {
         grid.fire_step(&fire_agent, &mut rng);
         grid.grid.lazy_update();
 
-        let v = RefCell::new(Vec::with_capacity((grid.dim.0 * grid.dim.1) as usize));
-        grid.grid.iter_values(|_, c| v.borrow_mut().push(*c));
-        let v = v.into_inner();
+        let mut v = vec![];
+        (0..grid.grid.width)
+            .cartesian_product(0..grid.grid.height)
+            .for_each(|(x, y)| {
+                let c = grid.grid.get_value(&Int2D { x, y }).unwrap();
+                v.push(c);
+            });
         assert_eq!(v.len(), 25);
         assert!(vec![
-            Cell::new_with_fire(1),
-            Cell::new_with_fire(2),
-            Cell::new(3),
-            Cell::new(4),
-            Cell::new(5),
-            Cell::new_with_fire(6),
-            Cell::new_with_fire(7),
-            Cell::new(8),
-            Cell::new(9),
-            Cell::new(10),
-            Cell::new(11),
-            Cell::new(12),
-            Cell::new(13),
-            Cell::new(14),
-            Cell::new(15),
-            Cell::new(16),
-            Cell::new(17),
-            Cell::new(18),
-            Cell::new(19),
-            Cell::new(20),
-            Cell::new(21),
-            Cell::new(22),
-            Cell::new(23),
-            Cell::new(24),
-            Cell::new(25),
+            CellType::Fire,  //1
+            CellType::Fire,  //2
+            CellType::Empty, //3
+            CellType::Empty, //4
+            CellType::Empty, //5
+            CellType::Fire,  //6
+            CellType::Fire,  //7
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
         ]
-        .iter()
-        .zip(v.into_iter())
-        .all(|(c1, c2)| c1.id == c2.id && c1.state == c2.state));
+        .into_iter()
+        .zip_eq(v.into_iter())
+        .all(|(c1, c2)| c1 == c2));
     }
 
     #[test]
@@ -294,31 +289,31 @@ mod tests {
             .initial_config(InitialConfig {
                 fire_spread: 0.7,
                 initial_grid: vec![
-                    Cell::new_with_fire(1),
-                    Cell::new(2),
-                    Cell::new(3),
-                    Cell::new(4),
-                    Cell::new(5),
-                    Cell::new(6),
-                    Cell::new(7),
-                    Cell::new(8),
-                    Cell::new(9),
-                    Cell::new(10),
-                    Cell::new(11),
-                    Cell::new(12),
-                    Cell::new(13),
-                    Cell::new(14),
-                    Cell::new(15),
-                    Cell::new(16),
-                    Cell::new(17),
-                    Cell::new(18),
-                    Cell::new(19),
-                    Cell::new(20),
-                    Cell::new(21),
-                    Cell::new(22),
-                    Cell::new(23),
-                    Cell::new(24),
-                    Cell::new(25),
+                    CellType::Fire,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
+                    CellType::Empty,
                 ],
             })
             .build();
@@ -336,39 +331,43 @@ mod tests {
         grid.fire_step(&fire_agent, &mut rng);
         grid.grid.lazy_update();
 
-        let v = RefCell::new(Vec::with_capacity((grid.dim.0 * grid.dim.1) as usize));
-        grid.grid.iter_values(|_, c| v.borrow_mut().push(*c));
-        let v = v.into_inner();
+        let mut v = vec![];
+        (0..grid.grid.width)
+            .cartesian_product(0..grid.grid.height)
+            .for_each(|(x, y)| {
+                let c = grid.grid.get_value(&Int2D { x, y }).unwrap();
+                v.push(c);
+            });
         assert_eq!(v.len(), 25);
         assert!(vec![
-            Cell::new_with_fire(1),
-            Cell::new(2),
-            Cell::new(3),
-            Cell::new(4),
-            Cell::new(5),
-            Cell::new(6),
-            Cell::new(7),
-            Cell::new(8),
-            Cell::new(9),
-            Cell::new(10),
-            Cell::new(11),
-            Cell::new(12),
-            Cell::new(13),
-            Cell::new(14),
-            Cell::new(15),
-            Cell::new(16),
-            Cell::new(17),
-            Cell::new(18),
-            Cell::new(19),
-            Cell::new(20),
-            Cell::new(21),
-            Cell::new(22),
-            Cell::new(23),
-            Cell::new(24),
-            Cell::new(25),
+            CellType::Fire,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
+            CellType::Empty,
         ]
-        .iter()
-        .zip(v.into_iter())
-        .all(|(c1, c2)| c1.id == c2.id && c1.state == c2.state));
+        .into_iter()
+        .zip_eq(v.into_iter())
+        .all(|(c1, c2)| c1 == c2));
     }
 }

@@ -45,19 +45,15 @@ fn main() {
     };
     use model::state::CellGrid;
 
-    use crate::model::{
-        cell::Cell,
-        state::{InitialConfig, DEFAULT_HEIGHT, DEFAULT_WIDTH},
-        state_builder::CellGridBuilder,
-    };
+    use crate::model::{cell::CellType, state::InitialConfig, state_builder::CellGridBuilder};
 
     let w = 50;
     let h = 50;
-    let mut map: Vec<Cell> = (0..w * h).map(|c| Cell::new(c as usize)).collect();
-    map[0] = Cell::new_with_fire(0);
+    let mut map: Vec<CellType> = (0..w * h).map(|_| CellType::Empty).collect();
+    map[0] = CellType::Fire;
 
     let init = InitialConfig {
-        fire_spread: 0.7,
+        fire_spread: 0.1,
         initial_grid: map,
     };
 

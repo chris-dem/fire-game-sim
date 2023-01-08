@@ -1,10 +1,11 @@
 use core::fmt;
-use krabmaga::engine::{agent::Agent, location::Int2D, schedule::Schedule, state::State};
+use krabmaga::engine::{agent::Agent, schedule::Schedule, state::State};
 use std::hash::{Hash, Hasher};
 
-use crate::model::cell::Cell;
 use crate::model::state::CellGrid;
 use krabmaga::rand as krand;
+
+use super::cell::CellType;
 
 // use super::transition::*;
 
@@ -27,8 +28,7 @@ impl Agent for FireRules {
 impl FireRules {
     #[allow(dead_code)]
     fn update(
-        _loc: &Int2D,
-        _value: &Cell,
+        _value: &CellType,
         _state: &mut dyn State,
         _schedule: &mut Schedule,
         _schedule_id: u32,

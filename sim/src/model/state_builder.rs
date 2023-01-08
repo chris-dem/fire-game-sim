@@ -1,4 +1,3 @@
-use crate::model::cell::*;
 use crate::model::state::*;
 use krabmaga::engine::fields::dense_number_grid_2d::DenseNumberGrid2D;
 
