@@ -2,12 +2,8 @@ use core::fmt;
 use krabmaga::engine::{agent::Agent, schedule::Schedule, state::State};
 use std::hash::{Hash, Hasher};
 
-use crate::model::state::CellGrid;
+use crate::model::{cell::CellType, state::CellGrid};
 use krabmaga::rand as krand;
-
-use super::cell::CellType;
-
-// use super::transition::*;
 
 #[derive(Clone, Copy)]
 pub struct FireRules {

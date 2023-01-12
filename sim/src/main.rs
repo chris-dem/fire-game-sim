@@ -1,6 +1,15 @@
 // Global imports (needed for the simulation to run)
-// use crate::model::sea::Sea;
+use color_eyre::eyre::Result;
+use model::state::InitialConfig;
+use serde::Deserialize;
 mod model;
+
+#[derive(Debug, Deserialize)]
+struct Import {
+    init: InitialConfig,
+    width: i32,
+    height: i32,
+}
 
 #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
 use {
@@ -36,8 +45,10 @@ fn main() {
 
 // Main used when a visualization feature is applied.
 #[cfg(any(feature = "visualization", feature = "visualization_wasm"))]
-fn main() {
+fn main() -> Result<()> {
     // Initialize the simulation and its visualization here.
+
+    use std::{fs, io::BufReader};
 
     use krabmaga::{
         bevy::prelude::IntoSystem, engine::fields::dense_number_grid_2d::DenseNumberGrid2D,
@@ -47,27 +58,22 @@ fn main() {
 
     use crate::model::{cell::CellType, state::InitialConfig, state_builder::CellGridBuilder};
 
-    let w = 50;
-    let h = 50;
-    let mut map: Vec<CellType> = (0..w * h).map(|_| CellType::Empty).collect();
-    map[0] = CellType::Fire;
-
-    let init = InitialConfig {
-        fire_spread: 0.1,
-        initial_grid: map,
-    };
+    let file = fs::File::open("./inputs/tests/base_input.json")?;
+    let buf = BufReader::new(file);
+    let init: Import = serde_json::from_reader(buf)?;
 
     let state = CellGridBuilder::default()
-        .initial_config(init)
-        .dim(w, h)
+        .initial_config(init.init)
+        .dim(init.width, init.height)
         .build();
 
     let mut app = Visualization::default()
         .with_window_dimensions(800., 600.)
-        .with_simulation_dimensions(1.5 * w as f32, 1.5 * h as f32)
+        .with_simulation_dimensions(1.5 * init.width as f32, 1.5 * init.height as f32)
         .with_background_color(Color::BLACK)
         .with_name("Template")
         .setup::<CellGridVis, CellGrid>(CellGridVis, state);
     app.add_system(DenseNumberGrid2D::batch_render.system());
-    app.run()
+    app.run();
+    Ok(())
 }

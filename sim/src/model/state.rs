@@ -3,9 +3,10 @@ use krabmaga::engine::fields::field::Field;
 use krabmaga::engine::state::State;
 use krabmaga::engine::{fields::dense_number_grid_2d::DenseNumberGrid2D, location::Int2D};
 use rand::RngCore;
+use serde::Deserialize;
 
-use super::fire_spread::FireRules;
 use super::transition::Transition;
+use crate::model::fire_mod::fire_spread::FireRules;
 
 /// Default Height of the room. Plus 1 for wall
 pub const DEFAULT_HEIGHT: u32 = 51;
@@ -14,7 +15,7 @@ pub const DEFAULT_WIDTH: u32 = 51;
 
 /// Initial Configuration of the simulation struct. Will be used to import the map or any other additional information
 /// such as parameters
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Deserialize)]
 pub struct InitialConfig {
     pub initial_grid: Vec<CellType>,
     pub fire_spread: f32,
@@ -42,7 +43,7 @@ impl Default for CellGrid {
     }
 }
 
-fn within_bounds(val: i32, limit: i32) -> bool {
+pub fn within_bounds(val: i32, limit: i32) -> bool {
     val >= 0 && val < limit
 }
 
