@@ -54,8 +54,8 @@ impl CellGrid {
             self.grid.set_value_location(
                 *val,
                 &Int2D {
-                    x: indx as i32 / self.dim.1 as i32,
-                    y: indx as i32 % self.dim.1 as i32,
+                    x: indx as i32 % self.dim.1 as i32,
+                    y: indx as i32 / self.dim.1 as i32,
                 },
             )
         }

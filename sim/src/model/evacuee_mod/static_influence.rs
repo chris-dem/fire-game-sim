@@ -9,7 +9,7 @@ pub trait StaticInfluence {
 #[derive(Debug)]
 pub struct ExitInfluence;
 
-fn dist(p1: &Int2D, p2: &Int2D) -> f32 {
+pub fn dist(p1: &Int2D, p2: &Int2D) -> f32 {
     (((p1.x - p2.x).pow(2) + (p1.y - p2.y).pow(2)) as f32).sqrt()
 }
 
