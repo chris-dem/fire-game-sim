@@ -1,9 +1,9 @@
+use crate::model::transition::Transition;
 use rand::prelude::*;
 use rand_derive2::RandGen;
 use serde::Deserialize;
 use std::fmt;
 
-use super::transition::Transition;
 /// Cell Type of the simulation. This means the type of the current cell.
 /// For now, treating the fire model and the agent model in the same.
 ///

@@ -1,10 +1,17 @@
-use crate::model::cell::*;
+use std::cell::RefCell;
+
+use crate::model::fire_mod::fire_cell::*;
 use krabmaga::engine::fields::field::Field;
 use krabmaga::engine::state::State;
 use krabmaga::engine::{fields::dense_number_grid_2d::DenseNumberGrid2D, location::Int2D};
+use krabmaga::HashMap;
 use rand::RngCore;
 use serde::Deserialize;
 
+use super::evacuee_mod::dynamic_influence::{ClosestDistance, DynamicInfluence};
+use super::evacuee_mod::evacuee::EvacueeAgent;
+use super::evacuee_mod::evacuee_cell::EvacueeCell;
+use super::evacuee_mod::static_influence::{ExitInfluence, StaticInfluence};
 use super::transition::Transition;
 use crate::model::fire_mod::fire_spread::FireRules;
 
@@ -18,6 +25,7 @@ pub const DEFAULT_WIDTH: u32 = 51;
 #[derive(Debug, Default, Clone, Deserialize)]
 pub struct InitialConfig {
     pub initial_grid: Vec<CellType>,
+    pub initial_evac_grid: Vec<EvacueeCell>,
     pub fire_spread: f32,
 }
 
@@ -28,8 +36,13 @@ pub struct InitialConfig {
 pub struct CellGrid {
     pub step: u64,
     pub grid: DenseNumberGrid2D<CellType>,
+    pub evac_grid: DenseNumberGrid2D<EvacueeCell>,
     pub dim: (u32, u32),
     pub initial_config: InitialConfig,
+    // Static measurement
+    pub static_influence: Box<dyn StaticInfluence + Send>,
+    /// Dynamic measurement
+    pub dynamic_influence: Box<dyn DynamicInfluence + Send>,
 }
 
 impl Default for CellGrid {
@@ -37,8 +50,14 @@ impl Default for CellGrid {
         Self {
             step: 0,
             grid: DenseNumberGrid2D::new(DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
+            evac_grid: DenseNumberGrid2D::new(DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
             dim: (DEFAULT_WIDTH, DEFAULT_HEIGHT),
             initial_config: Default::default(),
+            static_influence: Box::new(ExitInfluence::new(
+                1.5,
+                &(DEFAULT_WIDTH as i32 / 2, DEFAULT_HEIGHT as i32),
+            )),
+            dynamic_influence: Box::new(ClosestDistance::new(DEFAULT_WIDTH as usize, 0.5)),
         }
     }
 }
@@ -48,8 +67,10 @@ pub fn within_bounds(val: i32, limit: i32) -> bool {
 }
 
 impl CellGrid {
+    #[allow(unreachable_code)]
     /// Apply InitialConfiguration to the grid
     pub fn set_intial(&mut self) {
+        todo!("Set evacuees to the grid");
         for (indx, val) in self.initial_config.initial_grid.iter().enumerate() {
             self.grid.set_value_location(
                 *val,
@@ -59,12 +80,36 @@ impl CellGrid {
                 },
             )
         }
-        // self.grid.update();
+    }
+
+    pub fn get_neigh(&self, Int2D { x, y }: &Int2D) -> Vec<EvacueeCell> {
+        let x = *x;
+        let y = *y;
+        let mut ret = Vec::with_capacity(4);
+        for (i, j) in [(0, 1), (1, 0), (-1, 0), (0, -1)] {
+            if within_bounds(x + i, self.dim.0 as i32)
+                && within_bounds(y + j, self.dim.1 as i32)
+                && self.grid.get_value(&Int2D { x: x + i, y: y + j }).unwrap() == CellType::Empty
+            {
+                // TODO
+            }
+        }
+        ret
+    }
+
+    pub fn evacuee_step(&mut self, evacuee_agent: &EvacueeAgent, rng: &mut impl RngCore) {
+        // TODO implement unvisualized version with iter_values
+        let updates: RefCell<HashMap<(i32, i32), Vec<EvacueeCell>>> = RefCell::new(HashMap::new());
+        self.evac_grid.apply_to_all_values(
+            |val| {},
+            krabmaga::engine::fields::grid_option::GridOption::READ,
+        );
     }
 
     #[cfg(any(feature = "visualization", feature = "visualization_wasm"))]
     pub fn fire_step(&mut self, fire_agent: &impl Transition, rng: &mut impl RngCore) {
         let mut updated = Vec::new();
+        let mut add = 0usize;
         for x in 0..self.dim.0 as i32 {
             for y in 0..self.dim.1 as i32 {
                 let mut n = Vec::with_capacity(8);
@@ -83,24 +128,30 @@ impl CellGrid {
                     }
                 }
                 if cell.spread(fire_agent, &n[..], rng) {
-                    updated.push((Int2D { x, y }, CellType::Fire));
+                    let loc = Int2D { x, y };
+                    updated.push((loc, CellType::Fire));
+                    self.dynamic_influence.on_fire_update(&loc);
                 } else {
                     updated.push((Int2D { x, y }, cell));
                 }
             }
         }
-
         for (pos, cell) in updated.into_iter() {
             self.grid.set_value_location(cell, &pos)
         }
     }
 
+    // TODO FIX FOR UNVISUALIZED VERSION
     #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
     /// Encapsulates the entire fire step
     /// # Arguments
     /// `fire_agent` - Agent that implements the Transition trait. Will be responsbilee for the fire spread
     ///
-    pub fn fire_step(&mut self, fire_agent: &impl Transition, rng: &mut impl RngCore) {
+    pub fn fire_step(
+        &mut self,
+        fire_agent: &impl Transition<Cell = CellType>,
+        rng: &mut impl RngCore,
+    ) {
         let updated: RefCell<Vec<(Int2D, CellType)>> = RefCell::new(Vec::new());
         let rng = RefCell::new(thread_rng());
         self.grid.iter_values(|&Int2D { x, y }, cell| {
@@ -189,6 +240,7 @@ mod tests {
             // .rng(Box::new(ChaCha12Rng::from_seed(Default::default())))
             .initial_config(InitialConfig {
                 fire_spread: 0.7,
+                initial_evac_grid: vec![],
                 initial_grid: vec![
                     CellType::Fire,
                     CellType::Empty,
@@ -289,6 +341,7 @@ mod tests {
             .dim(5, 5)
             .initial_config(InitialConfig {
                 fire_spread: 0.7,
+                initial_evac_grid: vec![],
                 initial_grid: vec![
                     CellType::Fire,
                     CellType::Empty,

@@ -1,4 +1,4 @@
-use crate::model::cell::CellType;
+use crate::model::fire_mod::fire_cell::CellType;
 use crate::model::fire_mod::fire_spread::FireRules;
 use mockall::predicate::*;
 use mockall::*;
@@ -24,7 +24,7 @@ impl Transition for FireRules {
 /// Module used for testing and mock testing
 #[cfg(test)]
 mod tests {
-    use crate::model::cell::CellType;
+    use crate::model::fire_mod::fire_cell::CellType;
 
     use super::*;
     use approx::assert_relative_eq;

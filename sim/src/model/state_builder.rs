@@ -1,12 +1,19 @@
 use crate::model::state::*;
 use krabmaga::engine::fields::dense_number_grid_2d::DenseNumberGrid2D;
 
+use super::evacuee_mod::{
+    dynamic_influence::{ClosestDistance, DynamicInfluence},
+    static_influence::{ExitInfluence, StaticInfluence},
+};
+
 /// CellGrid Builder struct. Uses the builder consumer pattern in order to construct a CellGrid.
 #[derive(Default)]
 pub struct CellGridBuilder {
     step: u64,
     dim: Option<(u32, u32)>,
     initial_config: Option<InitialConfig>,
+    static_influence: Option<Box<dyn StaticInfluence + Send>>,
+    dynamic_influence: Option<Box<dyn DynamicInfluence + Send>>,
 }
 
 impl CellGridBuilder {
@@ -21,8 +28,8 @@ impl CellGridBuilder {
         self
     }
 
-    pub fn build(&mut self) -> CellGrid {
-        let dim = self.dim.clone().unwrap_or((DEFAULT_WIDTH, DEFAULT_HEIGHT));
+    pub fn build(self) -> CellGrid {
+        let dim = self.dim.unwrap_or((DEFAULT_WIDTH, DEFAULT_HEIGHT));
         if let Some(ref v) = self.initial_config {
             assert!(v.initial_grid.len() as i32 == dim.0 as i32 * dim.1 as i32)
         }
@@ -31,7 +38,15 @@ impl CellGridBuilder {
             step: self.step,
             dim,
             grid: DenseNumberGrid2D::new(dim.0 as i32, dim.1 as i32),
-            initial_config: self.initial_config.clone().unwrap_or_default(),
+            evac_grid: DenseNumberGrid2D::new(dim.0 as i32, dim.1 as i32),
+            initial_config: self.initial_config.unwrap_or_default(),
+            dynamic_influence: self
+                .dynamic_influence
+                .unwrap_or(Box::new(ClosestDistance::new(DEFAULT_WIDTH as usize, 0.5))),
+            static_influence: self.static_influence.unwrap_or(Box::new(ExitInfluence::new(
+                1.5,
+                &(DEFAULT_WIDTH as i32 / 2, DEFAULT_HEIGHT as i32),
+            ))),
         }
     }
 }

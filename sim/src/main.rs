@@ -4,6 +4,8 @@ use model::state::InitialConfig;
 use serde::Deserialize;
 mod model;
 
+// TODO intialise with seed
+
 #[derive(Debug, Deserialize)]
 struct Import {
     init: InitialConfig,
@@ -56,7 +58,9 @@ fn main() -> Result<()> {
     };
     use model::state::CellGrid;
 
-    use crate::model::{cell::CellType, state::InitialConfig, state_builder::CellGridBuilder};
+    use crate::model::{
+        fire_mod::fire_cell::CellType, state::InitialConfig, state_builder::CellGridBuilder,
+    };
 
     let file = fs::File::open("./inputs/tests/base_input.json")?;
     let buf = BufReader::new(file);

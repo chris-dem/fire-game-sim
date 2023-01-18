@@ -2,7 +2,7 @@ use core::fmt;
 use krabmaga::engine::{agent::Agent, schedule::Schedule, state::State};
 use std::hash::{Hash, Hasher};
 
-use crate::model::{cell::CellType, state::CellGrid};
+use crate::model::{fire_mod::fire_cell::CellType, state::CellGrid};
 use krabmaga::rand as krand;
 
 #[derive(Clone, Copy)]

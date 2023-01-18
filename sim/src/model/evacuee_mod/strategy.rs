@@ -1,4 +1,6 @@
 use rand_derive2::RandGen;
+use serde::Deserialize;
+use std::fmt;
 
 #[derive(Debug, PartialEq, Eq)]
 enum RuleCase {
@@ -7,9 +9,7 @@ enum RuleCase {
     Argument,
 }
 
-// Add todo
-
-#[derive(Debug, PartialEq, Eq, RandGen)]
+#[derive(Debug, PartialEq, Eq, RandGen, Clone, Copy, Deserialize)]
 pub enum Strategy {
     Competitive,
     Cooperative,
@@ -24,6 +24,11 @@ impl Strategy {
             _ => RuleCase::Argument,
         }
         // RuleCase::AllCoop
+    }
+}
+impl fmt::Display for Strategy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
     }
 }
 

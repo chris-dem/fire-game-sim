@@ -1,4 +1,4 @@
-use crate::model::cell::CellType;
+use crate::model::fire_mod::fire_cell::CellType;
 use crate::model::state::CellGrid;
 use krabmaga::bevy::ecs::component::TableStorage;
 use krabmaga::bevy::prelude::Component;
