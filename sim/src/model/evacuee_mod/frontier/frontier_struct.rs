@@ -29,8 +29,7 @@ impl Frontier {
 
     pub fn closest_point(&self, loc: &Loc) -> f32 {
         let calc = |lc: &(i32, i32)| {
-            // d^2, Reason of why not + 1. is because, if distance is 0 we do not want to go to that cell
-            // but it is very unlikely
+            // d^2, Reason of why not + 1. is because, a having a distance of 0 will be filtered from the neighbours
             distsq(&Int2D { x: loc.0, y: loc.1 }, &Int2D { x: lc.0, y: lc.1 })
         };
 

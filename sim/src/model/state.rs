@@ -1,17 +1,24 @@
+use std::borrow::BorrowMut;
 use std::cell::RefCell;
 
+use crate::model::evacuee_mod::strategy;
 use crate::model::fire_mod::fire_cell::*;
+use itertools::Itertools;
 use krabmaga::engine::fields::field::Field;
 use krabmaga::engine::state::State;
 use krabmaga::engine::{fields::dense_number_grid_2d::DenseNumberGrid2D, location::Int2D};
-use krabmaga::HashMap;
+use krabmaga::{Distribution, HashMap};
+use rand::distributions::WeightedIndex;
+use rand::seq::SliceRandom;
 use rand::RngCore;
 use serde::Deserialize;
 
 use super::evacuee_mod::dynamic_influence::{ClosestDistance, DynamicInfluence};
 use super::evacuee_mod::evacuee::EvacueeAgent;
 use super::evacuee_mod::evacuee_cell::EvacueeCell;
+use super::evacuee_mod::frontier::frontier_struct::Loc;
 use super::evacuee_mod::static_influence::{ExitInfluence, StaticInfluence};
+use super::evacuee_mod::strategy::Strategy;
 use super::transition::Transition;
 use crate::model::fire_mod::fire_spread::FireRules;
 
@@ -66,6 +73,10 @@ pub fn within_bounds(val: i32, limit: i32) -> bool {
     val >= 0 && val < limit
 }
 
+fn id_cell(ev_cell: &EvacueeCell) -> (Loc, EvacueeCell) {
+    ((ev_cell.x, ev_cell.y), *ev_cell)
+}
+
 impl CellGrid {
     #[allow(unreachable_code)]
     /// Apply InitialConfiguration to the grid
@@ -82,28 +93,97 @@ impl CellGrid {
         }
     }
 
-    pub fn get_neigh(&self, Int2D { x, y }: &Int2D) -> Vec<EvacueeCell> {
-        let x = *x;
-        let y = *y;
-        let mut ret = Vec::with_capacity(4);
+    pub fn get_neigh(&self, x: i32, y: i32) -> (Vec<Loc>, Vec<EvacueeCell>) {
+        let mut empty_vec = Vec::with_capacity(4);
+        let mut evac_vec = Vec::with_capacity(4);
         for (i, j) in [(0, 1), (1, 0), (-1, 0), (0, -1)] {
             if within_bounds(x + i, self.dim.0 as i32)
-                && within_bounds(y + j, self.dim.1 as i32)
+                && within_bounds(y + j, self.dim.1 as i32) // if we are not out of bounds
                 && self.grid.get_value(&Int2D { x: x + i, y: y + j }).unwrap() == CellType::Empty
+            // if the cell is empty
+            // if there are no evacuees
             {
-                // TODO
+                if let Some(evac) = self.evac_grid.get_value(&Int2D { x: x + i, y: y + j }) {
+                    evac_vec.push(evac)
+                } else {
+                    empty_vec.push((x + i, y + j))
+                }
             }
         }
-        ret
+        (empty_vec, evac_vec)
     }
 
     pub fn evacuee_step(&mut self, evacuee_agent: &EvacueeAgent, rng: &mut impl RngCore) {
         // TODO implement unvisualized version with iter_values
         let updates: RefCell<HashMap<(i32, i32), Vec<EvacueeCell>>> = RefCell::new(HashMap::new());
+        let still: RefCell<Vec<EvacueeCell>> = RefCell::new(vec![]);
+        let rng_cell = RefCell::new(rng);
         self.evac_grid.apply_to_all_values(
-            |val| {},
+            |val| {
+                let (empty_cells, _) = self.get_neigh(val.x, val.y);
+                if empty_cells.len() == 0 {
+                    // If there are no available cells, stay still
+                    still.borrow_mut().push(*val);
+                    return *val;
+                }
+                let weights = evacuee_agent.calculate_probabilities(
+                    &empty_cells,
+                    self.static_influence.as_ref(),
+                    self.dynamic_influence.as_ref(),
+                );
+                // todo!("if vec! len not being equal to 0 also check static and dynamic influence functions");
+                let dist = WeightedIndex::new(weights).unwrap(); // can be done here using the result
+                let opted_dist = empty_cells[dist.sample(&mut *rng_cell.borrow_mut())];
+                updates
+                    .borrow_mut()
+                    .entry(opted_dist)
+                    .and_modify(|c| c.push(*val))
+                    .or_insert(vec![*val]);
+                *val
+            },
             krabmaga::engine::fields::grid_option::GridOption::READ,
         );
+        let lp = updates
+            .take()
+            .into_iter()
+            .flat_map(|(dist, competing)| {
+                if competing.len() == 1 {
+                    return vec![(dist, competing[0])];
+                }
+                let ids = match competing[0].strategy.game_rules(
+                    &competing[1..]
+                        .iter()
+                        .map(|e| e.strategy)
+                        .collect::<Vec<_>>(),
+                ) {
+                    strategy::RuleCase::AllCoop => {
+                        let mut competing = competing.clone();
+                        competing.shuffle(&mut *rng_cell.borrow_mut());
+                        Some(competing)
+                    } // any will do
+                    strategy::RuleCase::AllButOneCoop => {
+                        let mut competing = competing.clone();
+                        competing.sort_by(|a, b| match (a.strategy, b.strategy) {
+                            (Strategy::Competitive, _) => std::cmp::Ordering::Greater,
+                            (_, Strategy::Competitive) => std::cmp::Ordering::Less,
+                            _ => std::cmp::Ordering::Equal,
+                        });
+                        Some(competing)
+                    }
+                    strategy::RuleCase::Argument => None,
+                };
+
+                if let Some(lis) = ids {
+                    [(dist, lis[0])]
+                        .into_iter()
+                        .chain(lis[1..].into_iter().map(|c| id_cell(c)))
+                        .collect_vec()
+                } else {
+                    competing.into_iter().map(|c| id_cell(&c)).collect_vec()
+                }
+            })
+            .chain(still.take().into_iter().map(|c| id_cell(&c)));
+        for i in lp {}
     }
 
     #[cfg(any(feature = "visualization", feature = "visualization_wasm"))]

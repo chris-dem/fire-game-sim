@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::fmt;
 
 #[derive(Debug, PartialEq, Eq)]
-enum RuleCase {
+pub enum RuleCase {
     AllCoop,
     AllButOneCoop,
     Argument,
@@ -16,7 +16,7 @@ pub enum Strategy {
 }
 
 impl Strategy {
-    fn game_rules(&self, neigh: &[Self]) -> RuleCase {
+    pub fn game_rules(&self, neigh: &[Self]) -> RuleCase {
         let self_val = if *self == Self::Competitive { 1 } else { 0 };
         match neigh.iter().filter(|x| **x == Self::Competitive).count() + self_val {
             0 => RuleCase::AllCoop,

@@ -30,7 +30,7 @@ impl EvacueeAgent {
     /// ```
     /// The higher the dynamic_influence, the higher the force incluence.
     /// To get probability distribution use the softmax function across all the neighbours
-    fn calculate_probabilities(
+    pub fn calculate_probabilities(
         &self,
         neigh: &[Loc],
         static_st: &dyn StaticInfluence,

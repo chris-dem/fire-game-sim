@@ -40,7 +40,7 @@ impl StaticInfluence for ExitInfluence {
             x: self.end_pos.0,
             y: self.end_pos.1,
         };
-        inverse_plus_one(distsq(pos, &exit))
+        inverse_plus_one(distsq(pos, &exit)) // 1 / (x ^ 2 + 1) to tackle x^2 = 0
     }
 
     fn get_static_effect(&self) -> f32 {
