@@ -7,4 +7,6 @@ pub struct EvacueeCell {
     pub strategy: Strategy,
     pub x: i32,
     pub y: i32,
+    /// probabillity of adopting strategy
+    pub pr_c: f32,
 }

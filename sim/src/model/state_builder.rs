@@ -4,6 +4,7 @@ use krabmaga::engine::fields::dense_number_grid_2d::DenseNumberGrid2D;
 use super::evacuee_mod::{
     dynamic_influence::{ClosestDistance, DynamicInfluence},
     static_influence::{ExitInfluence, StaticInfluence},
+    strategies::aspiration_strategy::AspirationStrategy,
 };
 
 /// CellGrid Builder struct. Uses the builder consumer pattern in order to construct a CellGrid.
@@ -12,6 +13,7 @@ pub struct CellGridBuilder {
     step: u64,
     dim: Option<(u32, u32)>,
     initial_config: Option<InitialConfig>,
+    aspiration_st: Option<Box<dyn AspirationStrategy + Send>>,
     static_influence: Option<Box<dyn StaticInfluence + Send>>,
     dynamic_influence: Option<Box<dyn DynamicInfluence + Send>>,
 }
@@ -28,12 +30,24 @@ impl CellGridBuilder {
         self
     }
 
+    pub fn aspiration(mut self, asp: Box<dyn AspirationStrategy + Send>) -> Self {
+        self.aspiration_st = Some(asp);
+        self
+    }
+
+    pub fn dynamic_influence(mut self) {
+        unimplemented!("Implement easier constructor")
+    }
+
+    pub fn static_influence(mut self) {
+        unimplemented!("Implement easier constructor")
+    }
+
     pub fn build(self) -> CellGrid {
         let dim = self.dim.unwrap_or((DEFAULT_WIDTH, DEFAULT_HEIGHT));
         if let Some(ref v) = self.initial_config {
             assert!(v.initial_grid.len() as i32 == dim.0 as i32 * dim.1 as i32)
         }
-
         CellGrid {
             step: self.step,
             dim,
@@ -47,6 +61,7 @@ impl CellGridBuilder {
                 1.5,
                 &(DEFAULT_WIDTH as i32 / 2, DEFAULT_HEIGHT as i32),
             ))),
+            ..Default::default()
         }
     }
 }

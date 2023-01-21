@@ -1,28 +1,24 @@
 use crate::model::misc::misc_func::loc_to_int2d;
 use itertools::Itertools;
 use krabmaga::engine::agent::Agent;
-use std::sync::Mutex;
-use std::sync::RwLock;
 
 use super::{
-    dynamic_influence::DynamicInfluence, frontier::frontier_struct::Loc,
+    dynamic_influence::DynamicInfluence, evacuee_cell::EvacueeCell, frontier::frontier_struct::Loc,
     static_influence::StaticInfluence,
 };
 
 // Cannot be implemented as an agent, due to possible collisions in cells
 // Must consider the homoegenuious interaction between neighbouring cells
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct EvacueeAgent {
     /// Unique identifier
     pub id: usize,
+    pub lc: f32,
+    pub ld: f32,
 }
 
 /// Implementation of constructor methods
 impl EvacueeAgent {
-    fn new(id: usize) -> Self {
-        Self { id }
-    }
-
     /// Calculate probabilities using neighbouring cells
     /// Simuating the forces acted on a cell being a linear combination of the forces we get:
     /// ```math
@@ -40,11 +36,21 @@ impl EvacueeAgent {
             .iter()
             .map(|cs| {
                 let cs = loc_to_int2d(cs);
-                (static_st.static_influence(&cs) * dynamic_st.dynamic_influence(&cs)).exp()
+                let d = dynamic_st.dynamic_influence(&cs);
+                let s = static_st.static_influence(&cs);
+                (s * d).exp()
             })
             .collect_vec();
         let s: f32 = all.iter().sum();
         all.into_iter().map(|el| el / s).collect_vec()
+    }
+
+    pub fn calculate_strategies(&self, EvacueeCell { pr_c, .. }: &EvacueeCell, stim: f32) -> f32 {
+        if stim.is_sign_positive() {
+            pr_c + (1. - pr_c) * self.lc * stim
+        } else {
+            (1. + self.lc * stim) * pr_c
+        }
     }
 }
 
@@ -74,7 +80,7 @@ mod tests {
         dynamic_inf.expect_dynamic_influence().return_const(1.);
         let static_inf = Box::new(static_inf);
         let dynamic_inf = Box::new(dynamic_inf);
-        let evac_agent = EvacueeAgent::new(1);
+        let evac_agent = EvacueeAgent::default();
         let probs = evac_agent.calculate_probabilities(
             &[(1, 0), (2, 1), (3, 3)],
             static_inf.as_ref(),

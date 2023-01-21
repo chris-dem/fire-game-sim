@@ -6,8 +6,6 @@ use std::fmt;
 
 /// Cell Type of the simulation. This means the type of the current cell.
 /// For now, treating the fire model and the agent model in the same.
-///
-/// TODO Determine how addition of different fields might affect the situation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, RandGen, Deserialize)]
 pub enum CellType {
     Fire,

@@ -22,6 +22,8 @@ pub trait DynamicInfluence {
 #[derive(Debug)]
 pub struct ClosestDistance {
     distance_vec: Frontier,
+    // calc_asp: Box<dyn AspirationStrategy>,
+    // calc_: Box<dyn >,
     num_fcells: usize,
     d_effect: f32,
 }

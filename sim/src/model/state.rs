@@ -2,12 +2,12 @@ use std::borrow::BorrowMut;
 use std::cell::RefCell;
 
 use crate::model::evacuee_mod::strategy;
+use crate::model::evacuee_mod::strategy::strategy_rewards;
 use crate::model::fire_mod::fire_cell::*;
-use itertools::Itertools;
 use krabmaga::engine::fields::field::Field;
 use krabmaga::engine::state::State;
 use krabmaga::engine::{fields::dense_number_grid_2d::DenseNumberGrid2D, location::Int2D};
-use krabmaga::{Distribution, HashMap};
+use krabmaga::{Distribution, HashMap, Rng};
 use rand::distributions::WeightedIndex;
 use rand::seq::SliceRandom;
 use rand::RngCore;
@@ -18,7 +18,9 @@ use super::evacuee_mod::evacuee::EvacueeAgent;
 use super::evacuee_mod::evacuee_cell::EvacueeCell;
 use super::evacuee_mod::frontier::frontier_struct::Loc;
 use super::evacuee_mod::static_influence::{ExitInfluence, StaticInfluence};
-use super::evacuee_mod::strategy::Strategy;
+use super::evacuee_mod::strategies::aspiration_strategy::{AspirationStrategy, LogAspManip};
+use super::evacuee_mod::strategies::ratio_strategy::{RatioStrategy, RootDist};
+use super::evacuee_mod::strategy::{s_x, Strategy};
 use super::transition::Transition;
 use crate::model::fire_mod::fire_spread::FireRules;
 
@@ -46,6 +48,10 @@ pub struct CellGrid {
     pub evac_grid: DenseNumberGrid2D<EvacueeCell>,
     pub dim: (u32, u32),
     pub initial_config: InitialConfig,
+    /// Aspiration function used
+    pub aspiration_st: Box<dyn AspirationStrategy + Send>,
+    /// Ratio function used
+    pub ratio_st: Box<dyn RatioStrategy + Send>,
     // Static measurement
     pub static_influence: Box<dyn StaticInfluence + Send>,
     /// Dynamic measurement
@@ -64,6 +70,8 @@ impl Default for CellGrid {
                 1.5,
                 &(DEFAULT_WIDTH as i32 / 2, DEFAULT_HEIGHT as i32),
             )),
+            aspiration_st: Box::new(LogAspManip::default()),
+            ratio_st: Box::new(RootDist::default()),
             dynamic_influence: Box::new(ClosestDistance::new(DEFAULT_WIDTH as usize, 0.5)),
         }
     }
@@ -71,10 +79,6 @@ impl Default for CellGrid {
 
 pub fn within_bounds(val: i32, limit: i32) -> bool {
     val >= 0 && val < limit
-}
-
-fn id_cell(ev_cell: &EvacueeCell) -> (Loc, EvacueeCell) {
-    ((ev_cell.x, ev_cell.y), *ev_cell)
 }
 
 impl CellGrid {
@@ -113,12 +117,16 @@ impl CellGrid {
         (empty_vec, evac_vec)
     }
 
-    pub fn evacuee_step(&mut self, evacuee_agent: &EvacueeAgent, rng: &mut impl RngCore) {
-        // TODO implement unvisualized version with iter_values
-        let updates: RefCell<HashMap<(i32, i32), Vec<EvacueeCell>>> = RefCell::new(HashMap::new());
-        let still: RefCell<Vec<EvacueeCell>> = RefCell::new(vec![]);
+    fn get_distinations(
+        &self,
+        evacuee_agent: &EvacueeAgent,
+        rng: &mut impl RngCore,
+    ) -> (HashMap<(i32, i32), Vec<EvacueeCell>>, Vec<EvacueeCell>) {
+        let updates = RefCell::new(HashMap::new());
+        let still = RefCell::new(vec![]);
         let rng_cell = RefCell::new(rng);
         self.evac_grid.apply_to_all_values(
+            // Extract intended movements of every agent, if agents want to move to the same square, add them to the queue
             |val| {
                 let (empty_cells, _) = self.get_neigh(val.x, val.y);
                 if empty_cells.len() == 0 {
@@ -127,69 +135,136 @@ impl CellGrid {
                     return *val;
                 }
                 let weights = evacuee_agent.calculate_probabilities(
+                    // else calculate the probability distribution of the neighbouring cells
                     &empty_cells,
                     self.static_influence.as_ref(),
                     self.dynamic_influence.as_ref(),
                 );
-                // todo!("if vec! len not being equal to 0 also check static and dynamic influence functions");
-                let dist = WeightedIndex::new(weights).unwrap(); // can be done here using the result
+                let dist = WeightedIndex::new(weights).unwrap();
                 let opted_dist = empty_cells[dist.sample(&mut *rng_cell.borrow_mut())];
-                updates
+                updates // look for opted disk in the hashmap
                     .borrow_mut()
                     .entry(opted_dist)
-                    .and_modify(|c| c.push(*val))
-                    .or_insert(vec![*val]);
+                    .and_modify(|c: &mut Vec<EvacueeCell>| c.push(*val)) // if it exists, add the evacuee who wants to occupy the wanted square to the queue
+                    .or_insert(vec![*val]); // else create a new vector with the evacuee in
                 *val
             },
             krabmaga::engine::fields::grid_option::GridOption::READ,
         );
-        let lp = updates
-            .take()
-            .into_iter()
-            .flat_map(|(dist, competing)| {
-                if competing.len() == 1 {
-                    return vec![(dist, competing[0])];
-                }
-                let ids = match competing[0].strategy.game_rules(
-                    &competing[1..]
-                        .iter()
-                        .map(|e| e.strategy)
-                        .collect::<Vec<_>>(),
-                ) {
-                    strategy::RuleCase::AllCoop => {
-                        let mut competing = competing.clone();
-                        competing.shuffle(&mut *rng_cell.borrow_mut());
-                        Some(competing)
-                    } // any will do
-                    strategy::RuleCase::AllButOneCoop => {
-                        let mut competing = competing.clone();
-                        competing.sort_by(|a, b| match (a.strategy, b.strategy) {
-                            (Strategy::Competitive, _) => std::cmp::Ordering::Greater,
-                            (_, Strategy::Competitive) => std::cmp::Ordering::Less,
-                            _ => std::cmp::Ordering::Equal,
-                        });
-                        Some(competing)
-                    }
-                    strategy::RuleCase::Argument => None,
-                };
+        (updates.take(), still.take())
+    }
 
-                if let Some(lis) = ids {
-                    [(dist, lis[0])]
-                        .into_iter()
-                        .chain(lis[1..].into_iter().map(|c| id_cell(c)))
-                        .collect_vec()
-                } else {
-                    competing.into_iter().map(|c| id_cell(&c)).collect_vec()
+    fn play_game(
+        &self,
+        dist: (i32, i32),
+        competing: Vec<EvacueeCell>,
+        rng: &mut impl RngCore,
+        evac_agent: &EvacueeAgent,
+    ) -> Vec<EvacueeCell> {
+        if competing.len() == 1 {
+            // if there is only one competing agent, allow him to occupy the square
+            return vec![EvacueeCell {
+                x: dist.0,
+                y: dist.1,
+                ..competing[0]
+            }];
+            // return vec![(dist, competing[0])];
+        }
+
+        let game = competing[0].strategy.game_rules(
+            // this section returns a shuffled list, the first is the user who will occupy the square where the rest will wait
+            // else put the rules into play
+            &competing[1..]
+                .iter()
+                .map(|e| e.strategy)
+                .collect::<Vec<_>>(),
+        );
+        let n = competing.len();
+        let mut competing: Vec<_> = competing
+            .into_iter()
+            .map(|e| {
+                (
+                    strategy_rewards(
+                        n,
+                        self.ratio_st.calculate_ratio(
+                            self.dynamic_influence
+                                .dynamic_influence(&Int2D { x: e.x, y: e.y }),
+                        ),
+                    ),
+                    e,
+                )
+            })
+            .collect();
+        let asp = self
+            .aspiration_st
+            .calculate_asp(self.dynamic_influence.get_number_of_cells());
+        let ids = match game {
+            strategy::RuleCase::AllCoop => {
+                // if everyone is cooperating randomly shuffle the list
+                competing.shuffle(&mut *rng.borrow_mut());
+                competing
+                    .into_iter()
+                    .map(|(rstp, e)| (s_x(rstp, asp, rstp.0), e))
+                    .collect::<Vec<_>>()
+            } // any will do
+            strategy::RuleCase::AllButOneCoop => {
+                // put the competitive guy first and the rest second
+                competing.sort_by(|a, b| match (a.1.strategy, b.1.strategy) {
+                    (Strategy::Competitive, _) => std::cmp::Ordering::Greater,
+                    (_, Strategy::Competitive) => std::cmp::Ordering::Less,
+                    _ => std::cmp::Ordering::Equal,
+                });
+                competing
+                    .into_iter()
+                    .map(|(w, el)| {
+                        let ret_w = if el.strategy == Strategy::Competitive {
+                            w.2
+                        } else {
+                            w.1
+                        };
+                        (s_x(w, asp, ret_w), el)
+                    })
+                    .collect()
+            }
+            strategy::RuleCase::Argument => competing
+                .into_iter()
+                .map(|(w, el)| (s_x(w, asp, w.3), el))
+                .collect(),
+        };
+        [(dist, ids[0])]
+            .into_iter()
+            .chain(ids[1..].into_iter().map(|(d, c)| ((c.x, c.y), (*d, *c))))
+            .map(|(c, (stim, evac))| {
+                let pr_prime = evac_agent.calculate_strategies(&evac, stim);
+                let mut strategy = evac.strategy;
+                if rng.gen_bool(pr_prime as f64) {
+                    strategy = strategy.inverse();
+                }
+                EvacueeCell {
+                    x: c.0,
+                    y: c.1,
+                    strategy,
+                    pr_c: pr_prime,
                 }
             })
-            .chain(still.take().into_iter().map(|c| id_cell(&c)));
-        for i in lp {}
+            .collect()
+    }
+
+    pub fn evacuee_step(&mut self, evacuee_agent: &EvacueeAgent, rng: &mut impl RngCore) {
+        let (updates, still) = self.get_distinations(evacuee_agent, rng);
+        let lp = updates //calculates which agent will occupy their intended square based on their game rules and preferences
+            .into_iter()
+            .flat_map(|(dist, competing)| self.play_game(dist, competing, rng, evacuee_agent))
+            .chain(still.into_iter());
+        for e in lp {
+            self.evac_grid
+                .set_value_location(e, &Int2D { x: e.x, y: e.y })
+        }
     }
 
     #[cfg(any(feature = "visualization", feature = "visualization_wasm"))]
     pub fn fire_step(&mut self, fire_agent: &impl Transition, rng: &mut impl RngCore) {
         let mut updated = Vec::new();
-        let mut add = 0usize;
         for x in 0..self.dim.0 as i32 {
             for y in 0..self.dim.1 as i32 {
                 let mut n = Vec::with_capacity(8);
@@ -503,5 +578,14 @@ mod tests {
         .into_iter()
         .zip_eq(v.into_iter())
         .all(|(c1, c2)| c1 == c2));
+    }
+}
+
+#[cfg(test)]
+mod evac_tests {
+    use super::*;
+
+    #[test]
+    fn test_empty_grid() { // test movement based on pure
     }
 }
