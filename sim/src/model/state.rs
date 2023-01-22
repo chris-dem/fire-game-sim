@@ -2,7 +2,6 @@ use std::borrow::BorrowMut;
 use std::cell::RefCell;
 
 use crate::model::evacuee_mod::strategy;
-use crate::model::evacuee_mod::strategy::strategy_rewards;
 use crate::model::fire_mod::fire_cell::*;
 use krabmaga::engine::fields::field::Field;
 use krabmaga::engine::state::State;
@@ -13,14 +12,12 @@ use rand::seq::SliceRandom;
 use rand::RngCore;
 use serde::Deserialize;
 
-use super::evacuee_mod::dynamic_influence::{ClosestDistance, DynamicInfluence};
 use super::evacuee_mod::evacuee::EvacueeAgent;
 use super::evacuee_mod::evacuee_cell::EvacueeCell;
-use super::evacuee_mod::frontier::frontier_struct::Loc;
+use super::evacuee_mod::fire_influence::fire_influence::FireInfluence;
 use super::evacuee_mod::static_influence::{ExitInfluence, StaticInfluence};
-use super::evacuee_mod::strategies::aspiration_strategy::{AspirationStrategy, LogAspManip};
-use super::evacuee_mod::strategies::ratio_strategy::{RatioStrategy, RootDist};
 use super::evacuee_mod::strategy::{s_x, Strategy};
+use super::misc::misc_func::Loc;
 use super::transition::Transition;
 use crate::model::fire_mod::fire_spread::FireRules;
 
@@ -48,14 +45,9 @@ pub struct CellGrid {
     pub evac_grid: DenseNumberGrid2D<EvacueeCell>,
     pub dim: (u32, u32),
     pub initial_config: InitialConfig,
-    /// Aspiration function used
-    pub aspiration_st: Box<dyn AspirationStrategy + Send>,
-    /// Ratio function used
-    pub ratio_st: Box<dyn RatioStrategy + Send>,
+    pub fire_influence: FireInfluence,
     // Static measurement
     pub static_influence: Box<dyn StaticInfluence + Send>,
-    /// Dynamic measurement
-    pub dynamic_influence: Box<dyn DynamicInfluence + Send>,
 }
 
 impl Default for CellGrid {
@@ -68,11 +60,9 @@ impl Default for CellGrid {
             initial_config: Default::default(),
             static_influence: Box::new(ExitInfluence::new(
                 1.5,
-                &(DEFAULT_WIDTH as i32 / 2, DEFAULT_HEIGHT as i32),
+                &Loc(DEFAULT_WIDTH as i32 / 2, DEFAULT_HEIGHT as i32),
             )),
-            aspiration_st: Box::new(LogAspManip::default()),
-            ratio_st: Box::new(RootDist::default()),
-            dynamic_influence: Box::new(ClosestDistance::new(DEFAULT_WIDTH as usize, 0.5)),
+            fire_influence: FireInfluence::default(),
         }
     }
 }
@@ -82,18 +72,20 @@ pub fn within_bounds(val: i32, limit: i32) -> bool {
 }
 
 impl CellGrid {
-    #[allow(unreachable_code)]
     /// Apply InitialConfiguration to the grid
     pub fn set_intial(&mut self) {
-        todo!("Set evacuees to the grid");
         for (indx, val) in self.initial_config.initial_grid.iter().enumerate() {
-            self.grid.set_value_location(
-                *val,
-                &Int2D {
-                    x: indx as i32 % self.dim.1 as i32,
-                    y: indx as i32 / self.dim.1 as i32,
-                },
-            )
+            let loc = Int2D {
+                x: indx as i32 % self.dim.1 as i32,
+                y: indx as i32 / self.dim.1 as i32,
+            };
+            self.grid.set_value_location(*val, &loc);
+            self.fire_influence.on_step(&loc.into());
+        }
+
+        for e in self.initial_config.initial_evac_grid.iter() {
+            self.evac_grid
+                .set_value_location(*e, &Int2D { x: e.x, y: e.y })
         }
     }
 
@@ -110,18 +102,17 @@ impl CellGrid {
                 if let Some(evac) = self.evac_grid.get_value(&Int2D { x: x + i, y: y + j }) {
                     evac_vec.push(evac)
                 } else {
-                    empty_vec.push((x + i, y + j))
+                    empty_vec.push(Loc(x + i, y + j))
                 }
             }
         }
         (empty_vec, evac_vec)
     }
-
     fn get_distinations(
         &self,
         evacuee_agent: &EvacueeAgent,
         rng: &mut impl RngCore,
-    ) -> (HashMap<(i32, i32), Vec<EvacueeCell>>, Vec<EvacueeCell>) {
+    ) -> (HashMap<Loc, Vec<EvacueeCell>>, Vec<EvacueeCell>) {
         let updates = RefCell::new(HashMap::new());
         let still = RefCell::new(vec![]);
         let rng_cell = RefCell::new(rng);
@@ -138,7 +129,7 @@ impl CellGrid {
                     // else calculate the probability distribution of the neighbouring cells
                     &empty_cells,
                     self.static_influence.as_ref(),
-                    self.dynamic_influence.as_ref(),
+                    &self.fire_influence,
                 );
                 let dist = WeightedIndex::new(weights).unwrap();
                 let opted_dist = empty_cells[dist.sample(&mut *rng_cell.borrow_mut())];
@@ -156,7 +147,7 @@ impl CellGrid {
 
     fn play_game(
         &self,
-        dist: (i32, i32),
+        dist: Loc,
         competing: Vec<EvacueeCell>,
         rng: &mut impl RngCore,
         evac_agent: &EvacueeAgent,
@@ -182,22 +173,11 @@ impl CellGrid {
         let n = competing.len();
         let mut competing: Vec<_> = competing
             .into_iter()
-            .map(|e| {
-                (
-                    strategy_rewards(
-                        n,
-                        self.ratio_st.calculate_ratio(
-                            self.dynamic_influence
-                                .dynamic_influence(&Int2D { x: e.x, y: e.y }),
-                        ),
-                    ),
-                    e,
-                )
-            })
+            .map(|e| (self.fire_influence.calculcate_rewards(n, &Loc(e.x, e.y)), e))
             .collect();
-        let asp = self
-            .aspiration_st
-            .calculate_asp(self.dynamic_influence.get_number_of_cells());
+
+        let asp = self.fire_influence.calculate_aspiration();
+
         let ids = match game {
             strategy::RuleCase::AllCoop => {
                 // if everyone is cooperating randomly shuffle the list
@@ -231,9 +211,10 @@ impl CellGrid {
                 .map(|(w, el)| (s_x(w, asp, w.3), el))
                 .collect(),
         };
+
         [(dist, ids[0])]
             .into_iter()
-            .chain(ids[1..].into_iter().map(|(d, c)| ((c.x, c.y), (*d, *c))))
+            .chain(ids[1..].into_iter().map(|(d, c)| (Loc(c.x, c.y), (*d, *c))))
             .map(|(c, (stim, evac))| {
                 let pr_prime = evac_agent.calculate_strategies(&evac, stim);
                 let mut strategy = evac.strategy;
@@ -285,7 +266,7 @@ impl CellGrid {
                 if cell.spread(fire_agent, &n[..], rng) {
                     let loc = Int2D { x, y };
                     updated.push((loc, CellType::Fire));
-                    self.dynamic_influence.on_fire_update(&loc);
+                    self.fire_influence.on_step(&loc.into());
                 } else {
                     updated.push((Int2D { x, y }, cell));
                 }
@@ -388,204 +369,211 @@ mod tests {
     use rand::SeedableRng;
     use rand_chacha::ChaCha12Rng;
 
-    #[test]
-    fn test_fire_step_with_high_spread() {
-        let mut grid = CellGridBuilder::default()
-            .dim(5, 5)
-            // .rng(Box::new(ChaCha12Rng::from_seed(Default::default())))
-            .initial_config(InitialConfig {
-                fire_spread: 0.7,
-                initial_evac_grid: vec![],
-                initial_grid: vec![
-                    CellType::Fire,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                ],
-            })
-            .build();
-        grid.set_intial(); // Create initial config and move values
-        grid.grid.lazy_update();
-        let mut fire_agent = MockTransition::new();
-        fire_agent
-            .expect_transition()
-            .with(
-                predicate::always(),
-                predicate::function(|neigh: &[CellType]| neigh.len() >= 3 && neigh.len() <= 8),
-            )
-            .returning(|c: &CellType, n: &[CellType]| {
-                if *c == CellType::Fire {
-                    0.
-                } else {
-                    let c = n.iter().filter(|c| **c == CellType::Fire).count();
-                    if c > 0 {
-                        1.
-                    } else {
+    mod fire_step {
+        use super::*;
+        #[test]
+        fn test_fire_step_with_high_spread() {
+            let mut grid = CellGridBuilder::default()
+                .dim(5, 5)
+                // .rng(Box::new(ChaCha12Rng::from_seed(Default::default())))
+                .initial_config(InitialConfig {
+                    fire_spread: 0.7,
+                    initial_evac_grid: vec![],
+                    initial_grid: vec![
+                        CellType::Fire,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                    ],
+                })
+                .build();
+            grid.set_intial(); // Create initial config and move values
+            grid.grid.lazy_update();
+            let mut fire_agent = MockTransition::new();
+            fire_agent
+                .expect_transition()
+                .with(
+                    predicate::always(),
+                    predicate::function(|neigh: &[CellType]| neigh.len() >= 3 && neigh.len() <= 8),
+                )
+                .returning(|c: &CellType, n: &[CellType]| {
+                    if *c == CellType::Fire {
                         0.
+                    } else {
+                        let c = n.iter().filter(|c| **c == CellType::Fire).count();
+                        if c > 0 {
+                            1.
+                        } else {
+                            0.
+                        }
                     }
-                }
-            });
-        let mut rng = ChaCha12Rng::from_seed(Default::default());
-        grid.fire_step(&fire_agent, &mut rng);
-        grid.grid.lazy_update();
+                });
+            let mut rng = ChaCha12Rng::from_seed(Default::default());
+            grid.fire_step(&fire_agent, &mut rng);
+            grid.grid.lazy_update();
 
-        let mut v = vec![];
-        (0..grid.grid.width)
-            .cartesian_product(0..grid.grid.height)
-            .for_each(|(x, y)| {
-                let c = grid.grid.get_value(&Int2D { x, y }).unwrap();
-                v.push(c);
-            });
-        assert_eq!(v.len(), 25);
-        assert!(vec![
-            CellType::Fire,  //1
-            CellType::Fire,  //2
-            CellType::Empty, //3
-            CellType::Empty, //4
-            CellType::Empty, //5
-            CellType::Fire,  //6
-            CellType::Fire,  //7
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-        ]
-        .into_iter()
-        .zip_eq(v.into_iter())
-        .all(|(c1, c2)| c1 == c2));
+            let mut v = vec![];
+            (0..grid.grid.width)
+                .cartesian_product(0..grid.grid.height)
+                .for_each(|(x, y)| {
+                    let c = grid.grid.get_value(&Int2D { x, y }).unwrap();
+                    v.push(c);
+                });
+            assert_eq!(v.len(), 25);
+            assert!(vec![
+                CellType::Fire,  //1
+                CellType::Fire,  //2
+                CellType::Empty, //3
+                CellType::Empty, //4
+                CellType::Empty, //5
+                CellType::Fire,  //6
+                CellType::Fire,  //7
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+            ]
+            .into_iter()
+            .zip_eq(v.into_iter())
+            .all(|(c1, c2)| c1 == c2));
+        }
+
+        #[test]
+        fn test_fire_step_with_small_spread() {
+            let mut grid = CellGridBuilder::default()
+                .dim(5, 5)
+                .initial_config(InitialConfig {
+                    fire_spread: 0.7,
+                    initial_evac_grid: vec![],
+                    initial_grid: vec![
+                        CellType::Fire,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                        CellType::Empty,
+                    ],
+                })
+                .build();
+            grid.set_intial();
+            grid.grid.lazy_update();
+            let mut fire_agent = MockTransition::new();
+            fire_agent
+                .expect_transition()
+                .with(
+                    predicate::always(),
+                    predicate::function(|neigh: &[CellType]| neigh.len() >= 3 && neigh.len() <= 8),
+                )
+                .return_const(0.);
+            let mut rng = ChaCha12Rng::seed_from_u64(10);
+            grid.fire_step(&fire_agent, &mut rng);
+            grid.grid.lazy_update();
+
+            let mut v = vec![];
+            (0..grid.grid.width)
+                .cartesian_product(0..grid.grid.height)
+                .for_each(|(x, y)| {
+                    let c = grid.grid.get_value(&Int2D { x, y }).unwrap();
+                    v.push(c);
+                });
+            assert_eq!(v.len(), 25);
+            assert!(vec![
+                CellType::Fire,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+                CellType::Empty,
+            ]
+            .into_iter()
+            .zip_eq(v.into_iter())
+            .all(|(c1, c2)| c1 == c2));
+        }
     }
 
-    #[test]
-    fn test_fire_step_with_small_spread() {
-        let mut grid = CellGridBuilder::default()
-            .dim(5, 5)
-            .initial_config(InitialConfig {
-                fire_spread: 0.7,
-                initial_evac_grid: vec![],
-                initial_grid: vec![
-                    CellType::Fire,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                    CellType::Empty,
-                ],
-            })
-            .build();
-        grid.set_intial();
-        grid.grid.lazy_update();
-        let mut fire_agent = MockTransition::new();
-        fire_agent
-            .expect_transition()
-            .with(
-                predicate::always(),
-                predicate::function(|neigh: &[CellType]| neigh.len() >= 3 && neigh.len() <= 8),
-            )
-            .return_const(0.);
-        let mut rng = ChaCha12Rng::seed_from_u64(10);
-        grid.fire_step(&fire_agent, &mut rng);
-        grid.grid.lazy_update();
+    mod evac_tests {
+        use super::*;
 
-        let mut v = vec![];
-        (0..grid.grid.width)
-            .cartesian_product(0..grid.grid.height)
-            .for_each(|(x, y)| {
-                let c = grid.grid.get_value(&Int2D { x, y }).unwrap();
-                v.push(c);
-            });
-        assert_eq!(v.len(), 25);
-        assert!(vec![
-            CellType::Fire,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-            CellType::Empty,
-        ]
-        .into_iter()
-        .zip_eq(v.into_iter())
-        .all(|(c1, c2)| c1 == c2));
-    }
-}
-
-#[cfg(test)]
-mod evac_tests {
-    use super::*;
-
-    #[test]
-    fn test_empty_grid() { // test movement based on pure
+        #[test]
+        fn test_grid_no_fire() { // test movement based on pure
+                                 // let state = CellGridBuilder::default()
+                                 //             .dim(10,10)
+                                 //             .fire_influence()
+                                 //             .static_influence()
+                                 //             .initial_config();
+        }
     }
 }

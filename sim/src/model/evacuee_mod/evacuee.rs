@@ -1,11 +1,11 @@
-use crate::model::misc::misc_func::loc_to_int2d;
+use super::fire_influence::dynamic_influence::DynamicInfluence;
+use super::fire_influence::fire_influence::FireInfluence;
+use super::fire_influence::frontier::{Frontier, FrontierStructure};
+use super::{evacuee_cell::EvacueeCell, static_influence::StaticInfluence};
+use crate::model::misc::misc_func::Loc;
 use itertools::Itertools;
 use krabmaga::engine::agent::Agent;
-
-use super::{
-    dynamic_influence::DynamicInfluence, evacuee_cell::EvacueeCell, frontier::frontier_struct::Loc,
-    static_influence::StaticInfluence,
-};
+use krabmaga::engine::location::Int2D;
 
 // Cannot be implemented as an agent, due to possible collisions in cells
 // Must consider the homoegenuious interaction between neighbouring cells
@@ -30,14 +30,13 @@ impl EvacueeAgent {
         &self,
         neigh: &[Loc],
         static_st: &dyn StaticInfluence,
-        dynamic_st: &dyn DynamicInfluence,
+        fire_infl: &FireInfluence,
     ) -> Vec<f32> {
         let all = neigh
             .iter()
             .map(|cs| {
-                let cs = loc_to_int2d(cs);
-                let d = dynamic_st.dynamic_influence(&cs);
-                let s = static_st.static_influence(&cs);
+                let d = fire_infl.get_movement_influence(&cs);
+                let s = static_st.static_influence(&Int2D::from(*cs));
                 (s * d).exp()
             })
             .collect_vec();
@@ -65,7 +64,10 @@ mod tests {
     use approx::assert_relative_eq;
 
     use crate::model::evacuee_mod::{
-        dynamic_influence::MockDynamicInfluence, static_influence::MockStaticInfluence,
+        fire_influence::{
+            dynamic_influence::MockDynamicInfluence, frontier::MockFrontierStructure,
+        },
+        static_influence::MockStaticInfluence,
     };
 
     use super::*;
@@ -80,11 +82,17 @@ mod tests {
         dynamic_inf.expect_dynamic_influence().return_const(1.);
         let static_inf = Box::new(static_inf);
         let dynamic_inf = Box::new(dynamic_inf);
+        let front_struct = Box::new(MockFrontierStructure::new());
+        let fire_infl = FireInfluence {
+            fire_state: front_struct,
+            movement: dynamic_inf,
+            ..Default::default()
+        };
         let evac_agent = EvacueeAgent::default();
         let probs = evac_agent.calculate_probabilities(
-            &[(1, 0), (2, 1), (3, 3)],
+            &[Loc(1, 0), Loc(2, 1), Loc(3, 3)],
             static_inf.as_ref(),
-            dynamic_inf.as_ref(),
+            &fire_infl,
         );
         let arr = [1.0_f32.exp(), 3.0_f32.exp(), 6.0_f32.exp()];
         let s = arr.iter().sum::<f32>();

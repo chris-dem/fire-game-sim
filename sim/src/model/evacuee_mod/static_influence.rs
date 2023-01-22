@@ -5,7 +5,7 @@ use mockall::automock;
 
 use crate::model::misc::misc_func::{distsq, inverse_plus_one};
 
-use super::frontier::frontier_struct::Loc;
+use crate::model::misc::misc_func::Loc;
 
 #[automock]
 /// Calculate the static influence from the exit of a current cell
@@ -50,7 +50,6 @@ impl StaticInfluence for ExitInfluence {
 
 #[cfg(test)]
 mod tests {
-    use crate::model::misc::misc_func::int2d_to_loc;
 
     use super::*;
     use approx::assert_relative_eq;
@@ -59,7 +58,7 @@ mod tests {
     #[test]
     fn static_influence_testing_on_a_random_setting() {
         let smax = vec![1. / (5. as f32 + 1.), 1. / (9. as f32 + 1.)];
-        let infl = ExitInfluence::new(1., &(3, 1));
+        let infl = ExitInfluence::new(1., &Loc(3, 1));
         assert_relative_eq!(infl.static_influence(&Int2D { x: 1, y: 0 },), smax[0]); // up
         assert_relative_eq!(infl.static_influence(&Int2D { x: 0, y: 1 }), smax[1]);
         // right
@@ -78,7 +77,7 @@ mod tests {
         .map(|el| inverse_plus_one(distsq(&el, &end_pos)))
         .collect::<Vec<_>>();
 
-        let infl = ExitInfluence::new(1., &int2d_to_loc(&end_pos));
+        let infl = ExitInfluence::new(1., &end_pos.into());
         assert_relative_eq!(infl.static_influence(&Int2D { x: 2, y: 1 }), smax[0]);
         assert_relative_eq!(infl.static_influence(&Int2D { x: 0, y: 1 }), smax[1]);
         assert_relative_eq!(infl.static_influence(&Int2D { x: 3, y: 1 }), smax[2]);

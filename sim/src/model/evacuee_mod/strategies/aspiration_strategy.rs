@@ -10,12 +10,13 @@ pub struct LogAspManip(f32);
 
 impl Default for LogAspManip {
     fn default() -> Self {
-        Self(1.)
+        Self(2.)
     }
 }
 
 impl AspirationStrategy for LogAspManip {
     fn calculate_asp(&self, numb_cells: usize) -> f32 {
-        self.0 * (numb_cells as f32).ln()
+        // Use ln + 1 to avoid inf cases
+        self.0 * (numb_cells as f32).ln_1p()
     }
 }

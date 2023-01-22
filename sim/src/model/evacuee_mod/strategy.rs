@@ -9,7 +9,7 @@ pub enum RuleCase {
     Argument,
 }
 
-type RSTP = (f32, f32, f32, f32);
+pub type RSTP = (f32, f32, f32, f32);
 
 #[inline]
 pub fn strategy_rewards(n: usize, r_t: f32) -> RSTP {

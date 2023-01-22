@@ -2,13 +2,27 @@ use std::collections::BTreeSet;
 
 use krabmaga::engine::location::Int2D;
 
-use crate::model::misc::misc_func::distsq;
+use crate::model::misc::misc_func::{distsq, Loc};
+use crate::model::state::DEFAULT_WIDTH;
+use mockall::predicate::*;
+use mockall::*;
 
-pub type Loc = (i32, i32);
+#[automock]
+pub trait FrontierStructure {
+    fn on_fire_update(&mut self, loc: &Loc);
+
+    fn closest_point(&self, loc: &Loc) -> Option<f32>;
+}
 
 #[derive(Debug, Clone)]
 pub struct Frontier {
     trees: Vec<BTreeSet<i32>>,
+}
+
+impl Default for Frontier {
+    fn default() -> Self {
+        Self::new(DEFAULT_WIDTH as usize)
+    }
 }
 
 impl Frontier {
@@ -21,13 +35,13 @@ impl Frontier {
     }
 
     #[inline]
-    pub fn update(&mut self, (x, y): &Loc) {
+    fn update(&mut self, Loc(x, y): &Loc) {
         assert!(0 <= *x && (*x as usize) < self.trees.len());
         let x = *x as usize;
         self.trees[x].insert(*y);
     }
 
-    pub fn closest_point(&self, loc: &Loc) -> f32 {
+    fn nearest(&self, loc: &Loc) -> Option<f32> {
         let calc = |lc: &(i32, i32)| {
             // d^2, Reason of why not + 1. is because, a having a distance of 0 will be filtered from the neighbours
             distsq(&Int2D { x: loc.0, y: loc.1 }, &Int2D { x: lc.0, y: lc.1 })
@@ -51,7 +65,6 @@ impl Frontier {
                     .map(|(el1, el2)| if el1 < el2 { el1 } else { el2 })
                     .or(acc.or(el))
             })
-            .unwrap_or(1.) // Essentially only time this is None is when there doesn't exist a fire_cell. If so by default there is no influence hence set it to 1
     }
 
     #[cfg(test)]
@@ -62,6 +75,15 @@ impl Frontier {
     }
 }
 
+impl FrontierStructure for Frontier {
+    fn on_fire_update(&mut self, loc: &Loc) {
+        self.update(loc);
+    }
+
+    fn closest_point(&self, loc: &Loc) -> Option<f32> {
+        self.nearest(loc)
+    }
+}
 #[cfg(test)]
 mod frontier_tests {
     use approx::assert_relative_eq;
@@ -71,33 +93,33 @@ mod frontier_tests {
     #[test]
     fn frontier_empty() {
         let front = Frontier::new(5);
-        assert_relative_eq!(front.closest_point(&(0, 0)), 1.)
+        assert_eq!(front.closest_point(&Loc(0, 0)), None)
     }
 
     #[test]
     fn frontier_one_point() {
         let mut front = Frontier::new(2);
-        front.update(&(0, 0));
-        assert_relative_eq!(front.closest_point(&(0, 0)), 0.);
-        assert_relative_eq!(front.closest_point(&(0, 0)), 0.);
-        assert_relative_eq!(front.closest_point(&(1, 0)), 1.);
+        front.update(&Loc(0, 0));
+        assert_relative_eq!(front.closest_point(&Loc(0, 0)).unwrap(), 0.);
+        assert_relative_eq!(front.closest_point(&Loc(0, 0)).unwrap(), 0.);
+        assert_relative_eq!(front.closest_point(&Loc(1, 0)).unwrap(), 1.);
     }
 
     #[test]
     fn frontier_straight_line() {
         let mut front = Frontier::new(5);
-        front.update_vec(&vec![(0, 0), (1, 0), (2, 0), (3, 0)]);
-        assert_relative_eq!(front.closest_point(&(3, 0)), 0.);
-        assert_relative_eq!(front.closest_point(&(3, 1)), 1.);
-        assert_relative_eq!(front.closest_point(&(4, 1)), (2.0_f32));
+        front.update_vec(&vec![Loc(0, 0), Loc(1, 0), Loc(2, 0), Loc(3, 0)]);
+        assert_relative_eq!(front.closest_point(&Loc(3, 0)).unwrap(), 0.);
+        assert_relative_eq!(front.closest_point(&Loc(3, 1)).unwrap(), 1.);
+        assert_relative_eq!(front.closest_point(&Loc(4, 1)).unwrap(), (2.0_f32));
     }
 
     #[test]
     fn frontier_column_line() {
         let mut front = Frontier::new(5);
-        front.update_vec(&vec![(0, 0), (0, 1), (0, 2), (0, 3)]);
-        assert_relative_eq!(front.closest_point(&(0, 3)), 0.);
-        assert_relative_eq!(front.closest_point(&(1, 3)), 1.);
-        assert_relative_eq!(front.closest_point(&(1, 4)), (2.0_f32));
+        front.update_vec(&vec![Loc(0, 0), Loc(0, 1), Loc(0, 2), Loc(0, 3)]);
+        assert_relative_eq!(front.closest_point(&Loc(0, 3)).unwrap(), 0.);
+        assert_relative_eq!(front.closest_point(&Loc(1, 3)).unwrap(), 1.);
+        assert_relative_eq!(front.closest_point(&Loc(1, 4)).unwrap(), (2.0_f32));
     }
 }
