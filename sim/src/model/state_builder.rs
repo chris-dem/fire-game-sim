@@ -1,10 +1,10 @@
 use crate::model::state::*;
 use krabmaga::engine::fields::dense_number_grid_2d::DenseNumberGrid2D;
-
+// TODO finish
 use super::{
     evacuee_mod::{
         fire_influence::fire_influence::FireInfluence,
-        static_influence:: {ExitInfluence, StaticInfluence},
+        static_influence::{ExitInfluence, StaticInfluence},
     },
     misc::misc_func::Loc,
 };
@@ -41,11 +41,9 @@ impl CellGridBuilder {
         self
     }
 
+    // TODO could add input checking methods
     pub fn build(self) -> CellGrid {
         let dim = self.dim.unwrap_or((DEFAULT_WIDTH, DEFAULT_HEIGHT));
-        if let Some(ref v) = self.initial_config {
-            assert!(v.initial_grid.len() as i32 == dim.0 as i32 * dim.1 as i32)
-        }
         CellGrid {
             step: self.step,
             dim,
@@ -57,6 +55,7 @@ impl CellGridBuilder {
                 &Loc(DEFAULT_WIDTH as i32 / 2, DEFAULT_HEIGHT as i32),
             ))),
             fire_influence: self.fire_influence.unwrap_or_default(),
+            ..Default::default()
         }
     }
 }

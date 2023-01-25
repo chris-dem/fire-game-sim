@@ -1,6 +1,9 @@
+use rand::{seq::SliceRandom, RngCore};
 use rand_derive2::RandGen;
 use serde::Deserialize;
-use std::{cmp::Ordering, fmt};
+use std::{borrow::BorrowMut, cmp::Ordering, fmt};
+
+use super::evacuee_cell::EvacueeCell;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum RuleCase {
@@ -28,6 +31,47 @@ pub fn s_x(rewards: RSTP, a_x: f32, reward: f32) -> f32 {
     .max_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
     .unwrap();
     (reward - a_x) / mx
+}
+
+pub fn rules(
+    game_rules: RuleCase,
+    mut competing: Vec<(RSTP, EvacueeCell)>,
+    rng: &mut impl RngCore,
+    asp: f32,
+) -> Result<Vec<(f32, EvacueeCell)>, Vec<(f32, EvacueeCell)>> {
+    match game_rules {
+        RuleCase::AllCoop => {
+            // if everyone is cooperating randomly shuffle the list
+            competing.shuffle(&mut *rng.borrow_mut());
+            Ok(competing
+                .into_iter()
+                .map(|(rstp, e)| (s_x(rstp, asp, rstp.0), e))
+                .collect::<Vec<_>>())
+        } // any will do
+        RuleCase::AllButOneCoop => {
+            // put the competitive guy first and the rest second
+            competing.sort_unstable_by(|a, b| match (a.1.strategy, b.1.strategy) {
+                (Strategy::Competitive, _) => std::cmp::Ordering::Less,
+                (_, Strategy::Competitive) => std::cmp::Ordering::Greater,
+                _ => std::cmp::Ordering::Equal,
+            });
+            Ok(competing
+                .into_iter()
+                .map(|(w, el)| {
+                    let ret_w = if el.strategy == Strategy::Competitive {
+                        w.2
+                    } else {
+                        w.1
+                    };
+                    (s_x(w, asp, ret_w), el)
+                })
+                .collect())
+        }
+        RuleCase::Argument => Err(competing
+            .into_iter()
+            .map(|(w, el)| (s_x(w, asp, w.3), el))
+            .collect()),
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, RandGen, Clone, Copy, Deserialize)]
@@ -96,5 +140,111 @@ mod tests {
             Strategy::Cooperative,
         ];
         assert_eq!(curr_evac.game_rules(&others), RuleCase::Argument);
+    }
+
+    mod rule_tests {
+        use rand::SeedableRng;
+        use rand_chacha::ChaChaRng;
+
+        use super::*;
+
+        #[test]
+        fn test_rules_all_coop() {
+            let game_rules = RuleCase::AllCoop;
+            let mut rng = ChaChaRng::seed_from_u64(3);
+            let asp = 1.;
+            let competing = vec![
+                (
+                    (0.7, 0.2, 0.1, 0.1),
+                    EvacueeCell {
+                        x: 0,
+                        y: 0,
+                        strategy: Strategy::Cooperative,
+                        pr_c: 0.,
+                    },
+                ),
+                (
+                    (0.7, 0.2, 0.1, 0.1),
+                    EvacueeCell {
+                        x: 0,
+                        y: 0,
+                        strategy: Strategy::Cooperative,
+                        pr_c: 0.,
+                    },
+                ),
+            ];
+            let res = rules(game_rules, competing.clone(), &mut rng, asp).unwrap();
+            let expected = vec![-0.33333334, -0.33333334];
+            assert!(expected
+                .into_iter()
+                .zip(res.into_iter())
+                .all(|(a1, a2)| (a1 as f32) == a2.0));
+        }
+
+        #[test]
+        fn test_rules_all_but_one_coop() {
+            let game_rules = RuleCase::AllButOneCoop;
+            let mut rng = ChaChaRng::seed_from_u64(3);
+            let asp = 1.;
+            let competing = vec![
+                (
+                    (0.7, 0.2, 0.1, 0.1),
+                    EvacueeCell {
+                        x: 0,
+                        y: 0,
+                        strategy: Strategy::Competitive,
+                        pr_c: 0.,
+                    },
+                ),
+                (
+                    (0.7, 0.2, 0.1, 0.1),
+                    EvacueeCell {
+                        x: 0,
+                        y: 0,
+                        strategy: Strategy::Cooperative,
+                        pr_c: 0.,
+                    },
+                ),
+            ];
+            let res = rules(game_rules, competing.clone(), &mut rng, asp).unwrap();
+            let expected = vec![-1., -0.88888896];
+            assert!(expected
+                .into_iter()
+                .zip(res.into_iter())
+                .all(|(a1, a2)| (a1 as f32) == a2.0));
+        }
+
+        #[test]
+        fn test_rules_no_coop() {
+            let game_rules = RuleCase::Argument;
+            let mut rng = ChaChaRng::seed_from_u64(3);
+            let asp = 1.;
+            let competing = vec![
+                (
+                    (0.7, 0.2, 0.1, 1.9),
+                    EvacueeCell {
+                        x: 0,
+                        y: 0,
+                        strategy: Strategy::Competitive,
+                        pr_c: 0.,
+                    },
+                ),
+                (
+                    (0.7, 0.2, 0.1, 1.2),
+                    EvacueeCell {
+                        x: 0,
+                        y: 0,
+                        strategy: Strategy::Competitive,
+                        pr_c: 0.,
+                    },
+                ),
+            ];
+            let res = dbg!(rules(game_rules, competing.clone(), &mut rng, asp).unwrap_err());
+            let expected = vec![1., 0.22222228];
+            assert!(expected
+                .into_iter()
+                .zip(res.into_iter())
+                .all(|(a1, a2)| (a1 as f32) == a2.0));
+        }
     }
 }

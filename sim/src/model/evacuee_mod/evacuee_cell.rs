@@ -10,3 +10,9 @@ pub struct EvacueeCell {
     /// probabillity of adopting strategy
     pub pr_c: f32,
 }
+
+impl PartialEq for EvacueeCell {
+    fn eq(&self, other: &Self) -> bool {
+        self.x == other.x && self.y == other.y
+    }
+}

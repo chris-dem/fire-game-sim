@@ -20,14 +20,14 @@ pub struct ClosestDistance(f32);
 
 impl Default for ClosestDistance {
     fn default() -> Self {
-        Self(0.5)
+        Self(1.)
     }
 }
 
 impl DynamicInfluence for ClosestDistance {
     #[inline]
     fn dynamic_influence(&self, loc: &Int2D, front: &dyn FrontierStructure) -> f32 {
-        front.closest_point(&(*loc).into()).unwrap_or(1.)
+        front.closest_point(&(*loc).into()).unwrap_or(1.).sqrt()
     }
 
     fn get_dynamic_effect(&self) -> f32 {

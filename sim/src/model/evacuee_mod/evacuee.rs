@@ -1,11 +1,14 @@
 use super::fire_influence::dynamic_influence::DynamicInfluence;
 use super::fire_influence::fire_influence::FireInfluence;
 use super::fire_influence::frontier::{Frontier, FrontierStructure};
+use super::strategy::Strategy;
 use super::{evacuee_cell::EvacueeCell, static_influence::StaticInfluence};
 use crate::model::misc::misc_func::Loc;
+use crate::model::state::CellGrid;
 use itertools::Itertools;
 use krabmaga::engine::agent::Agent;
 use krabmaga::engine::location::Int2D;
+use krabmaga::rand as krand;
 
 // Cannot be implemented as an agent, due to possible collisions in cells
 // Must consider the homoegenuious interaction between neighbouring cells
@@ -37,25 +40,37 @@ impl EvacueeAgent {
             .map(|cs| {
                 let d = fire_infl.get_movement_influence(&cs);
                 let s = static_st.static_influence(&Int2D::from(*cs));
-                (s * d).exp()
+                (-s + d).exp()
             })
             .collect_vec();
         let s: f32 = all.iter().sum();
         all.into_iter().map(|el| el / s).collect_vec()
     }
 
-    pub fn calculate_strategies(&self, EvacueeCell { pr_c, .. }: &EvacueeCell, stim: f32) -> f32 {
-        if stim.is_sign_positive() {
-            pr_c + (1. - pr_c) * self.lc * stim
+    pub fn calculate_strategies(
+        &self,
+        EvacueeCell { pr_c, strategy, .. }: &EvacueeCell,
+        stim: f32,
+    ) -> f32 {
+        let con = if *strategy == Strategy::Cooperative {
+            self.lc
         } else {
-            (1. + self.lc * stim) * pr_c
+            self.ld
+        };
+        if stim.is_sign_positive() {
+            pr_c + (1. - pr_c) * con * stim
+        } else {
+            (1. + con * stim) * pr_c
         }
     }
 }
 
 impl Agent for EvacueeAgent {
     fn step(&mut self, state: &mut dyn krabmaga::engine::state::State) {
-        todo!()
+        let state = state.as_any_mut().downcast_mut::<CellGrid>().unwrap();
+        let mut rng = krand::thread_rng();
+
+        state.evacuee_step(self, &mut rng);
     }
 }
 

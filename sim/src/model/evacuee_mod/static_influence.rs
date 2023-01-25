@@ -17,14 +17,13 @@ pub trait StaticInfluence {
 /// Structure that implements the Static Influence trait
 /// Method used:
 /// $$
-///  { 1 \over x^2+1}
+///  { 1 \over |x|+1}
 /// $$
 #[derive(Debug, Clone)]
 pub struct ExitInfluence {
     s_effect: f32,
     end_pos: Loc,
 }
-
 impl ExitInfluence {
     pub fn new(s_effect: f32, end_pos: &Loc) -> Self {
         Self {
@@ -36,15 +35,24 @@ impl ExitInfluence {
 
 impl StaticInfluence for ExitInfluence {
     fn static_influence(&self, pos: &Int2D) -> f32 {
-        let exit = Int2D {
-            x: self.end_pos.0,
-            y: self.end_pos.1,
-        };
-        inverse_plus_one(distsq(pos, &exit)) // 1 / (x ^ 2 + 1) to tackle x^2 = 0
+        distsq(&self.end_pos.into(), pos).sqrt()
     }
 
     fn get_static_effect(&self) -> f32 {
         self.s_effect
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ConstantInfluence;
+
+impl StaticInfluence for ConstantInfluence {
+    fn static_influence(&self, _pos: &Int2D) -> f32 {
+        1.
+    }
+
+    fn get_static_effect(&self) -> f32 {
+        1.
     }
 }
 

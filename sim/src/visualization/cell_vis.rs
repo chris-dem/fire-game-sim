@@ -27,6 +27,9 @@ impl CellGridVis {
         state
             .grid
             .render(&mut *sprite_render_factory, commands, sim);
+        state
+            .evac_grid
+            .render(&mut *sprite_render_factory, commands, sim);
     }
 }
 

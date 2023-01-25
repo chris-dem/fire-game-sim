@@ -14,11 +14,8 @@ use super::{
     frontier::{Frontier, FrontierStructure},
 };
 
-// TODO
-/// Refactor:
-/// * movement
-/// * aspiration
-/// * ratio
+/// Fire Influence structure
+///
 pub struct FireInfluence {
     pub fire_state: Box<dyn FrontierStructure + Send>,
     pub fire_area: usize,
@@ -46,6 +43,7 @@ impl FireInfluence {
     pub fn get_movement_influence(&self, loc: &Loc) -> f32 {
         self.movement
             .dynamic_influence(&(*loc).into(), self.fire_state.as_ref())
+            .sqrt()
             * self.movement.get_dynamic_effect()
     }
 

@@ -37,6 +37,7 @@ impl Frontier {
     #[inline]
     fn update(&mut self, Loc(x, y): &Loc) {
         assert!(0 <= *x && (*x as usize) < self.trees.len());
+        // dbg!(Loc(x, y));
         let x = *x as usize;
         self.trees[x].insert(*y);
     }
@@ -56,6 +57,7 @@ impl Frontier {
                     let x = indx as i32;
                     calc(&(x, *y))
                 };
+                // dbg!(tree);
                 let next = tree.range(..loc.1).next_back().map(capt);
                 let prev = tree.range(loc.1..).next().map(capt);
                 [next, prev]

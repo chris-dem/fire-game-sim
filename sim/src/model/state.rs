@@ -1,22 +1,21 @@
-use std::borrow::BorrowMut;
-use std::cell::RefCell;
+use std::collections::HashSet;
 
-use crate::model::evacuee_mod::strategy;
 use crate::model::fire_mod::fire_cell::*;
+use itertools::Itertools;
 use krabmaga::engine::fields::field::Field;
 use krabmaga::engine::state::State;
 use krabmaga::engine::{fields::dense_number_grid_2d::DenseNumberGrid2D, location::Int2D};
 use krabmaga::{Distribution, HashMap, Rng};
 use rand::distributions::WeightedIndex;
-use rand::seq::SliceRandom;
 use rand::RngCore;
 use serde::Deserialize;
 
+use super::death::{DeathHandler, HMapHandler};
 use super::evacuee_mod::evacuee::EvacueeAgent;
 use super::evacuee_mod::evacuee_cell::EvacueeCell;
 use super::evacuee_mod::fire_influence::fire_influence::FireInfluence;
 use super::evacuee_mod::static_influence::{ExitInfluence, StaticInfluence};
-use super::evacuee_mod::strategy::{s_x, Strategy};
+use super::evacuee_mod::strategy::rules;
 use super::misc::misc_func::Loc;
 use super::transition::Transition;
 use crate::model::fire_mod::fire_spread::FireRules;
@@ -30,7 +29,7 @@ pub const DEFAULT_WIDTH: u32 = 51;
 /// such as parameters
 #[derive(Debug, Default, Clone, Deserialize)]
 pub struct InitialConfig {
-    pub initial_grid: Vec<CellType>,
+    pub initial_grid: Vec<(i32, i32)>,
     pub initial_evac_grid: Vec<EvacueeCell>,
     pub fire_spread: f32,
 }
@@ -46,7 +45,7 @@ pub struct CellGrid {
     pub dim: (u32, u32),
     pub initial_config: InitialConfig,
     pub fire_influence: FireInfluence,
-    // Static measurement
+    pub death_handler: Box<dyn DeathHandler + Send>,
     pub static_influence: Box<dyn StaticInfluence + Send>,
 }
 
@@ -62,6 +61,7 @@ impl Default for CellGrid {
                 1.5,
                 &Loc(DEFAULT_WIDTH as i32 / 2, DEFAULT_HEIGHT as i32),
             )),
+            death_handler: Box::new(HMapHandler::default()),
             fire_influence: FireInfluence::default(),
         }
     }
@@ -74,13 +74,26 @@ pub fn within_bounds(val: i32, limit: i32) -> bool {
 impl CellGrid {
     /// Apply InitialConfiguration to the grid
     pub fn set_intial(&mut self) {
-        for (indx, val) in self.initial_config.initial_grid.iter().enumerate() {
-            let loc = Int2D {
-                x: indx as i32 % self.dim.1 as i32,
-                y: indx as i32 / self.dim.1 as i32,
+        let st: HashSet<(i32, i32)> =
+            HashSet::from_iter(self.initial_config.initial_grid.iter().cloned());
+        let to_grid = (0..self.dim.0 * self.dim.1).map(|indx| {
+            let el = (
+                indx as i32 % self.dim.1 as i32,
+                indx as i32 / self.dim.1 as i32,
+            );
+            let c = if st.contains(&el) {
+                CellType::Fire
+            } else {
+                CellType::Empty
             };
-            self.grid.set_value_location(*val, &loc);
-            self.fire_influence.on_step(&loc.into());
+            (el, c)
+        });
+        for ((x, y), val) in to_grid {
+            let loc = Int2D { x, y };
+            self.grid.set_value_location(val, &loc);
+            if val == CellType::Fire {
+                self.fire_influence.on_step(&loc.into());
+            }
         }
 
         for e in self.initial_config.initial_evac_grid.iter() {
@@ -89,60 +102,64 @@ impl CellGrid {
         }
     }
 
-    pub fn get_neigh(&self, x: i32, y: i32) -> (Vec<Loc>, Vec<EvacueeCell>) {
+    pub fn get_neigh(&self, x: i32, y: i32) -> Vec<Loc> {
         let mut empty_vec = Vec::with_capacity(4);
-        let mut evac_vec = Vec::with_capacity(4);
         for (i, j) in [(0, 1), (1, 0), (-1, 0), (0, -1)] {
             if within_bounds(x + i, self.dim.0 as i32)
                 && within_bounds(y + j, self.dim.1 as i32) // if we are not out of bounds
+                && self
+                    .evac_grid
+                    .get_value(&Int2D { x: x + i, y: y + j })
+                    .is_none()
                 && self.grid.get_value(&Int2D { x: x + i, y: y + j }).unwrap() == CellType::Empty
             // if the cell is empty
             // if there are no evacuees
             {
-                if let Some(evac) = self.evac_grid.get_value(&Int2D { x: x + i, y: y + j }) {
-                    evac_vec.push(evac)
-                } else {
-                    empty_vec.push(Loc(x + i, y + j))
-                }
+                empty_vec.push(Loc(x + i, y + j))
             }
         }
-        (empty_vec, evac_vec)
+        empty_vec
     }
     fn get_distinations(
-        &self,
+        &mut self,
         evacuee_agent: &EvacueeAgent,
         rng: &mut impl RngCore,
     ) -> (HashMap<Loc, Vec<EvacueeCell>>, Vec<EvacueeCell>) {
-        let updates = RefCell::new(HashMap::new());
-        let still = RefCell::new(vec![]);
-        let rng_cell = RefCell::new(rng);
-        self.evac_grid.apply_to_all_values(
-            // Extract intended movements of every agent, if agents want to move to the same square, add them to the queue
-            |val| {
-                let (empty_cells, _) = self.get_neigh(val.x, val.y);
-                if empty_cells.len() == 0 {
-                    // If there are no available cells, stay still
-                    still.borrow_mut().push(*val);
-                    return *val;
-                }
-                let weights = evacuee_agent.calculate_probabilities(
-                    // else calculate the probability distribution of the neighbouring cells
-                    &empty_cells,
-                    self.static_influence.as_ref(),
-                    &self.fire_influence,
-                );
-                let dist = WeightedIndex::new(weights).unwrap();
-                let opted_dist = empty_cells[dist.sample(&mut *rng_cell.borrow_mut())];
-                updates // look for opted disk in the hashmap
-                    .borrow_mut()
-                    .entry(opted_dist)
-                    .and_modify(|c: &mut Vec<EvacueeCell>| c.push(*val)) // if it exists, add the evacuee who wants to occupy the wanted square to the queue
-                    .or_insert(vec![*val]); // else create a new vector with the evacuee in
-                *val
-            },
-            krabmaga::engine::fields::grid_option::GridOption::READ,
+        let mut updates = HashMap::new();
+        let mut still = vec![];
+        // Extract intended movements of every agent, if agents want to move to the same square, add them to the queue
+        for val in self
+            .evac_grid
+            .locs
+            .values()
+            .iter()
+            .filter(|EvacueeCell { x, y, .. }| !self.death_handler.is_dead(&Int2D { x: *x, y: *y }))
+            .map(|c| *c)
+        {
+            let empty_cells = self.get_neigh(val.x, val.y);
+            if empty_cells.len() == 0 {
+                // If there are no available cells, stay still
+                still.push(*val);
+                continue;
+            }
+            let weights =
+            //  dbg!(
+                evacuee_agent.calculate_probabilities(
+                // else calculate the probability distribution of the neighbouring cells
+                &empty_cells,
+                self.static_influence.as_ref(),
+                &self.fire_influence,
+            // )
         );
-        (updates.take(), still.take())
+            let dist = WeightedIndex::new(weights).unwrap();
+            let opted_dist = empty_cells[dist.sample(rng)];
+            updates // look for opted disk in the hashmap
+                .entry(opted_dist)
+                .and_modify(|c: &mut Vec<EvacueeCell>| c.push(*val)) // if it exists, add the evacuee who wants to occupy the wanted square to the queue
+                .or_insert(vec![*val]); // else create a new vector with the evacuee in
+        }
+        self.death_handler.clear();
+        (updates, still)
     }
 
     fn play_game(
@@ -162,6 +179,7 @@ impl CellGrid {
             // return vec![(dist, competing[0])];
         }
 
+        // Could be optimised with no need to return new location
         let game = competing[0].strategy.game_rules(
             // this section returns a shuffled list, the first is the user who will occupy the square where the rest will wait
             // else put the rules into play
@@ -171,50 +189,26 @@ impl CellGrid {
                 .collect::<Vec<_>>(),
         );
         let n = competing.len();
-        let mut competing: Vec<_> = competing
+        let competing: Vec<_> = competing
             .into_iter()
             .map(|e| (self.fire_influence.calculcate_rewards(n, &Loc(e.x, e.y)), e))
             .collect();
 
         let asp = self.fire_influence.calculate_aspiration();
 
-        let ids = match game {
-            strategy::RuleCase::AllCoop => {
-                // if everyone is cooperating randomly shuffle the list
-                competing.shuffle(&mut *rng.borrow_mut());
-                competing
-                    .into_iter()
-                    .map(|(rstp, e)| (s_x(rstp, asp, rstp.0), e))
-                    .collect::<Vec<_>>()
-            } // any will do
-            strategy::RuleCase::AllButOneCoop => {
-                // put the competitive guy first and the rest second
-                competing.sort_by(|a, b| match (a.1.strategy, b.1.strategy) {
-                    (Strategy::Competitive, _) => std::cmp::Ordering::Greater,
-                    (_, Strategy::Competitive) => std::cmp::Ordering::Less,
-                    _ => std::cmp::Ordering::Equal,
-                });
-                competing
-                    .into_iter()
-                    .map(|(w, el)| {
-                        let ret_w = if el.strategy == Strategy::Competitive {
-                            w.2
-                        } else {
-                            w.1
-                        };
-                        (s_x(w, asp, ret_w), el)
-                    })
-                    .collect()
-            }
-            strategy::RuleCase::Argument => competing
+        let ids = rules(game, competing, rng, asp);
+        let lis = if let Ok(ids) = ids {
+            [(dist, ids[0])]
                 .into_iter()
-                .map(|(w, el)| (s_x(w, asp, w.3), el))
-                .collect(),
+                .chain(ids[1..].into_iter().map(|(d, c)| (Loc(c.x, c.y), (*d, *c))))
+                .collect_vec()
+        } else {
+            ids.unwrap_err()
+                .into_iter()
+                .map(|(d, c)| (Loc(c.x, c.y), (d, c)))
+                .collect_vec()
         };
-
-        [(dist, ids[0])]
-            .into_iter()
-            .chain(ids[1..].into_iter().map(|(d, c)| (Loc(c.x, c.y), (*d, *c))))
+        lis.into_iter()
             .map(|(c, (stim, evac))| {
                 let pr_prime = evac_agent.calculate_strategies(&evac, stim);
                 let mut strategy = evac.strategy;
@@ -233,11 +227,14 @@ impl CellGrid {
 
     pub fn evacuee_step(&mut self, evacuee_agent: &EvacueeAgent, rng: &mut impl RngCore) {
         let (updates, still) = self.get_distinations(evacuee_agent, rng);
+        // dbg!(&updates);
         let lp = updates //calculates which agent will occupy their intended square based on their game rules and preferences
             .into_iter()
             .flat_map(|(dist, competing)| self.play_game(dist, competing, rng, evacuee_agent))
-            .chain(still.into_iter());
-        for e in lp {
+            .chain(still.into_iter())
+            .collect::<Vec<_>>();
+        // dbg!(&lp);
+        for e in lp.into_iter() {
             self.evac_grid
                 .set_value_location(e, &Int2D { x: e.x, y: e.y })
         }
@@ -245,6 +242,8 @@ impl CellGrid {
 
     #[cfg(any(feature = "visualization", feature = "visualization_wasm"))]
     pub fn fire_step(&mut self, fire_agent: &impl Transition, rng: &mut impl RngCore) {
+        use krabmaga::bevy::log;
+
         let mut updated = Vec::new();
         for x in 0..self.dim.0 as i32 {
             for y in 0..self.dim.1 as i32 {
@@ -265,6 +264,9 @@ impl CellGrid {
                 }
                 if cell.spread(fire_agent, &n[..], rng) {
                     let loc = Int2D { x, y };
+                    if self.evac_grid.locs.get_read(&loc).is_some() {
+                        self.death_handler.update_death(loc);
+                    }
                     updated.push((loc, CellType::Fire));
                     self.fire_influence.on_step(&loc.into());
                 } else {
@@ -273,7 +275,7 @@ impl CellGrid {
             }
         }
         for (pos, cell) in updated.into_iter() {
-            self.grid.set_value_location(cell, &pos)
+            self.grid.set_value_location(cell, &pos);
         }
     }
 
@@ -322,6 +324,7 @@ impl State for CellGrid {
     fn update(&mut self, step: u64) {
         self.step = step;
         self.grid.lazy_update();
+        self.evac_grid.lazy_update();
     }
 
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
@@ -343,8 +346,10 @@ impl State for CellGrid {
     fn reset(&mut self) {
         self.step = 0;
         self.grid = DenseNumberGrid2D::new(self.dim.0 as i32, self.dim.1 as i32);
+        self.evac_grid = DenseNumberGrid2D::new(self.dim.0 as i32, self.dim.1 as i32);
     }
 
+    /// TODO give better instatiation
     fn init(&mut self, schedule: &mut krabmaga::engine::schedule::Schedule) {
         self.reset();
         self.set_intial();
@@ -352,8 +357,16 @@ impl State for CellGrid {
             spread: self.initial_config.fire_spread,
             id: 1,
         };
+        let evac_agent = EvacueeAgent {
+            id: 1,
+            lc: 0.7,
+            ld: 0.9,
+        };
+
         self.grid.update();
+        self.evac_grid.update();
         schedule.schedule_repeating(Box::new(fire_rules), 0., 0);
+        schedule.schedule_repeating(Box::new(evac_agent), 0., 1);
     }
 }
 
@@ -379,33 +392,7 @@ mod tests {
                 .initial_config(InitialConfig {
                     fire_spread: 0.7,
                     initial_evac_grid: vec![],
-                    initial_grid: vec![
-                        CellType::Fire,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                    ],
+                    initial_grid: vec![(0, 0)], //only the first
                 })
                 .build();
             grid.set_intial(); // Create initial config and move values
@@ -441,36 +428,13 @@ mod tests {
                     v.push(c);
                 });
             assert_eq!(v.len(), 25);
-            assert!(vec![
-                CellType::Fire,  //1
-                CellType::Fire,  //2
-                CellType::Empty, //3
-                CellType::Empty, //4
-                CellType::Empty, //5
-                CellType::Fire,  //6
-                CellType::Fire,  //7
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-            ]
-            .into_iter()
-            .zip_eq(v.into_iter())
-            .all(|(c1, c2)| c1 == c2));
+            // only first 6th and 7th
+            let mut v = [CellType::Empty; 25];
+            v[0] = CellType::Fire;
+            v[1] = CellType::Fire;
+            v[5] = CellType::Fire;
+            v[6] = CellType::Fire;
+            assert!(v.into_iter().zip_eq(v.into_iter()).all(|(c1, c2)| c1 == c2));
         }
 
         #[test]
@@ -480,33 +444,7 @@ mod tests {
                 .initial_config(InitialConfig {
                     fire_spread: 0.7,
                     initial_evac_grid: vec![],
-                    initial_grid: vec![
-                        CellType::Fire,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                        CellType::Empty,
-                    ],
+                    initial_grid: vec![(0, 0)],
                 })
                 .build();
             grid.set_intial();
@@ -531,49 +469,214 @@ mod tests {
                     v.push(c);
                 });
             assert_eq!(v.len(), 25);
-            assert!(vec![
-                CellType::Fire,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-                CellType::Empty,
-            ]
-            .into_iter()
-            .zip_eq(v.into_iter())
-            .all(|(c1, c2)| c1 == c2));
+            assert!((0..25)
+                .into_iter()
+                .map(|c| {
+                    if c == 0 {
+                        CellType::Fire
+                    } else {
+                        CellType::Empty
+                    }
+                })
+                .collect_vec()
+                .into_iter()
+                .zip_eq(v.into_iter())
+                .all(|(c1, c2)| c1 == c2));
         }
     }
 
     mod evac_tests {
-        use super::*;
+        use approx::Relative;
+        use mockall::*;
+        use rand::SeedableRng;
+        use rand_chacha::ChaChaRng;
 
-        #[test]
-        fn test_grid_no_fire() { // test movement based on pure
-                                 // let state = CellGridBuilder::default()
-                                 //             .dim(10,10)
-                                 //             .fire_influence()
-                                 //             .static_influence()
-                                 //             .initial_config();
+        use crate::model::{
+            evacuee_mod::{
+                evacuee::EvacueeAgent,
+                evacuee_cell::EvacueeCell,
+                fire_influence::{fire_influence::FireInfluence, frontier::MockFrontierStructure},
+                strategies::aspiration_strategy::MockAspirationStrategy,
+                strategy::Strategy,
+            },
+            misc::misc_func::Loc,
+            state::CellGrid,
+        };
+
+        mod no_fire {
+            use super::*;
+            #[test]
+            fn test_play_game_no_fire() {
+                let mut rng = ChaChaRng::seed_from_u64(30);
+                let competing = vec![
+                    EvacueeCell {
+                        x: 0,
+                        y: 0,
+                        pr_c: 0.,
+                        strategy: Strategy::Cooperative,
+                    },
+                    EvacueeCell {
+                        x: 0,
+                        y: 1,
+                        pr_c: 0.,
+                        strategy: Strategy::Cooperative,
+                    },
+                    EvacueeCell {
+                        x: 1,
+                        y: 0,
+                        pr_c: 0.,
+                        strategy: Strategy::Cooperative,
+                    },
+                ];
+                let mut front_st = MockFrontierStructure::new();
+
+                front_st
+                    .expect_closest_point()
+                    .with(predicate::function(|el| {
+                        let cells = vec![Loc(0, 0), Loc(1, 0), Loc(0, 1)];
+                        cells.contains(el)
+                    }))
+                    .return_const(None);
+
+                let mut asp_st = MockAspirationStrategy::new();
+
+                asp_st.expect_calculate_asp().returning(|c| 10. * c as f32);
+
+                let fire = CellGrid {
+                    fire_influence: FireInfluence {
+                        fire_state: Box::new(front_st),
+                        aspiration: Box::new(asp_st),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                };
+
+                let new_state = fire.play_game(
+                    Loc(1, 1),
+                    competing.clone(),
+                    &mut rng,
+                    &EvacueeAgent {
+                        id: 1,
+                        lc: 0.7,
+                        ld: 0.9,
+                    },
+                );
+                let expected = vec![
+                    EvacueeCell {
+                        strategy: Strategy::Cooperative,
+                        x: 1,
+                        y: 1,
+                        pr_c: 0.30529115,
+                    },
+                    EvacueeCell {
+                        strategy: Strategy::Cooperative,
+                        x: 0,
+                        y: 0,
+                        pr_c: 0.30529115,
+                    },
+                    EvacueeCell {
+                        strategy: Strategy::Competitive,
+                        x: 1,
+                        y: 0,
+                        pr_c: 0.30529115,
+                    },
+                ];
+                assert!(new_state
+                    .into_iter()
+                    .zip(expected.into_iter())
+                    .all(|(e1, e2)| {
+                        let r = Relative::default().eq(&e1.pr_c, &e1.pr_c);
+                        r && e1 == e2 && e1.strategy == e2.strategy
+                    }))
+            }
+
+            #[test]
+            fn test_play_game_no_fire_higher_adopting() {
+                let mut rng = ChaChaRng::seed_from_u64(31);
+
+                let competing = vec![
+                    EvacueeCell {
+                        x: 0,
+                        y: 0,
+                        pr_c: 0.5,
+                        strategy: Strategy::Cooperative,
+                    },
+                    EvacueeCell {
+                        x: 0,
+                        y: 1,
+                        pr_c: 1.,
+                        strategy: Strategy::Cooperative,
+                    },
+                    EvacueeCell {
+                        x: 1,
+                        y: 0,
+                        pr_c: 0.8,
+                        strategy: Strategy::Cooperative,
+                    },
+                ];
+                let mut front_st = MockFrontierStructure::new();
+
+                front_st
+                    .expect_closest_point()
+                    .with(predicate::function(|el| {
+                        let cells = vec![Loc(0, 0), Loc(1, 0), Loc(0, 1)];
+                        cells.contains(el)
+                    }))
+                    .return_const(None);
+
+                let mut asp_st = MockAspirationStrategy::new();
+
+                asp_st.expect_calculate_asp().return_const(0.);
+
+                let fire = CellGrid {
+                    fire_influence: FireInfluence {
+                        fire_state: Box::new(front_st),
+                        aspiration: Box::new(asp_st),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                };
+
+                let new_state = fire.play_game(
+                    Loc(1, 1),
+                    competing.clone(),
+                    &mut rng,
+                    &EvacueeAgent {
+                        id: 1,
+                        lc: 0.7,
+                        ld: 0.9,
+                    },
+                );
+                let expected = vec![
+                    EvacueeCell {
+                        strategy: Strategy::Competitive,
+                        x: 1,
+                        y: 1,
+                        pr_c: 0.6526456,
+                    },
+                    EvacueeCell {
+                        strategy: Strategy::Competitive,
+                        x: 1,
+                        y: 0,
+                        pr_c: 0.86105824,
+                    },
+                    EvacueeCell {
+                        strategy: Strategy::Competitive,
+                        x: 0,
+                        y: 1,
+                        pr_c: 1.0,
+                    },
+                ];
+                assert!(new_state
+                    .into_iter()
+                    .zip(expected.into_iter())
+                    .all(|(e1, e2)| {
+                        let r = Relative::default().eq(&e1.pr_c, &e1.pr_c);
+                        r && e1 == e2 && e1.strategy == e2.strategy
+                    }))
+            }
         }
+
+        mod diretion_tests {}
     }
 }
