@@ -119,7 +119,7 @@ fn main() -> Result<()> {
         .dim(init.width, init.height)
         .static_influence(Box::new(ExitInfluence::new(
             1.5,
-            &Loc(init.width / 2, init.height + 1),
+            &Loc(init.width / 2, init.height),
         )))
         .build();
 

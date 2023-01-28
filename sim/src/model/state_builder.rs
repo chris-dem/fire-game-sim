@@ -2,6 +2,7 @@ use crate::model::state::*;
 use krabmaga::engine::fields::dense_number_grid_2d::DenseNumberGrid2D;
 // TODO finish
 use super::{
+    escape::TimeEscape,
     evacuee_mod::{
         fire_influence::fire_influence::FireInfluence,
         static_influence::{ExitInfluence, StaticInfluence},
@@ -55,6 +56,10 @@ impl CellGridBuilder {
                 &Loc(DEFAULT_WIDTH as i32 / 2, DEFAULT_HEIGHT as i32),
             ))),
             fire_influence: self.fire_influence.unwrap_or_default(),
+            escape_handler: Box::new(TimeEscape {
+                exit: Loc(dim.0 as i32 / 2, dim.1 as i32).into(),
+                ..Default::default()
+            }),
             ..Default::default()
         }
     }

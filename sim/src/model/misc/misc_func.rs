@@ -18,11 +18,11 @@ impl From<Loc> for Int2D {
     }
 }
 
-/// Implementation of $f(x) = 1 / (x + 1)$
-#[inline]
-pub fn inverse_plus_one(val: f32) -> f32 {
-    (val + 1.).recip()
-}
+// /// Implementation of $f(x) = 1 / (x + 1)$
+// #[inline]
+// pub fn inverse_plus_one(val: f32) -> f32 {
+//     (val + 1.).recip()
+// }
 
 /// Distance squared between two 2D locations
 #[inline]

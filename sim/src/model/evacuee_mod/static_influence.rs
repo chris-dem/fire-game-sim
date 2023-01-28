@@ -3,9 +3,10 @@ use std::fmt::Debug;
 use krabmaga::engine::location::Int2D;
 use mockall::automock;
 
-use crate::model::misc::misc_func::{distsq, inverse_plus_one};
+use crate::model::misc::misc_func::distsq;
 
 use crate::model::misc::misc_func::Loc;
+use crate::model::state::{DEFAULT_HEIGHT, DEFAULT_WIDTH};
 
 #[automock]
 /// Calculate the static influence from the exit of a current cell
@@ -29,6 +30,15 @@ impl ExitInfluence {
         Self {
             s_effect,
             end_pos: *end_pos,
+        }
+    }
+}
+
+impl Default for ExitInfluence {
+    fn default() -> Self {
+        Self {
+            s_effect: 0.5,
+            end_pos: Loc(DEFAULT_WIDTH as i32 / 2, DEFAULT_HEIGHT as i32 + 1),
         }
     }
 }

@@ -10,7 +10,8 @@ use rand::distributions::WeightedIndex;
 use rand::RngCore;
 use serde::Deserialize;
 
-use super::death::{DeathHandler, HMapHandler};
+use super::death::{Announcer, DeathHandler};
+use super::escape::{EscapeHandler, EvacTime, TimeEscape};
 use super::evacuee_mod::evacuee::EvacueeAgent;
 use super::evacuee_mod::evacuee_cell::EvacueeCell;
 use super::evacuee_mod::fire_influence::fire_influence::FireInfluence;
@@ -45,6 +46,7 @@ pub struct CellGrid {
     pub dim: (u32, u32),
     pub initial_config: InitialConfig,
     pub fire_influence: FireInfluence,
+    pub escape_handler: Box<dyn EscapeHandler<Storage = EvacTime> + Send>,
     pub death_handler: Box<dyn DeathHandler + Send>,
     pub static_influence: Box<dyn StaticInfluence + Send>,
 }
@@ -57,12 +59,10 @@ impl Default for CellGrid {
             evac_grid: DenseNumberGrid2D::new(DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
             dim: (DEFAULT_WIDTH, DEFAULT_HEIGHT),
             initial_config: Default::default(),
-            static_influence: Box::new(ExitInfluence::new(
-                1.5,
-                &Loc(DEFAULT_WIDTH as i32 / 2, DEFAULT_HEIGHT as i32),
-            )),
-            death_handler: Box::new(HMapHandler::default()),
-            fire_influence: FireInfluence::default(),
+            static_influence: Box::new(ExitInfluence::default()),
+            death_handler: Box::new(Announcer::default()),
+            escape_handler: Box::new(TimeEscape::default()),
+            fire_influence: Default::default(),
         }
     }
 }
@@ -105,17 +105,19 @@ impl CellGrid {
     pub fn get_neigh(&self, x: i32, y: i32) -> Vec<Loc> {
         let mut empty_vec = Vec::with_capacity(4);
         for (i, j) in [(0, 1), (1, 0), (-1, 0), (0, -1)] {
-            if within_bounds(x + i, self.dim.0 as i32)
+            let loc = Loc(x + i, y + j);
+            if self.escape_handler.is_exit(&loc)
+                || (within_bounds(x + i, self.dim.0 as i32)
                 && within_bounds(y + j, self.dim.1 as i32) // if we are not out of bounds
                 && self
                     .evac_grid
-                    .get_value(&Int2D { x: x + i, y: y + j })
+                    .get_value(&loc.into())
                     .is_none()
-                && self.grid.get_value(&Int2D { x: x + i, y: y + j }).unwrap() == CellType::Empty
+                && self.grid.get_value(&loc.into()).unwrap() == CellType::Empty)
             // if the cell is empty
             // if there are no evacuees
             {
-                empty_vec.push(Loc(x + i, y + j))
+                empty_vec.push(loc)
             }
         }
         empty_vec
@@ -128,37 +130,35 @@ impl CellGrid {
         let mut updates = HashMap::new();
         let mut still = vec![];
         // Extract intended movements of every agent, if agents want to move to the same square, add them to the queue
-        for val in self
-            .evac_grid
-            .locs
-            .values()
-            .iter()
-            .filter(|EvacueeCell { x, y, .. }| !self.death_handler.is_dead(&Int2D { x: *x, y: *y }))
-            .map(|c| *c)
-        {
+        for val in self.evac_grid.locs.values().iter().map(|c| *c) {
+            let loc = Int2D { x: val.x, y: val.y };
+            if *self.grid.locs.get_read(&loc).unwrap() == CellType::Fire {
+                self.death_handler.update_death(loc);
+                continue;
+            }
             let empty_cells = self.get_neigh(val.x, val.y);
             if empty_cells.len() == 0 {
                 // If there are no available cells, stay still
                 still.push(*val);
                 continue;
             }
-            let weights =
-            //  dbg!(
-                evacuee_agent.calculate_probabilities(
+            let weights = evacuee_agent.calculate_probabilities(
                 // else calculate the probability distribution of the neighbouring cells
                 &empty_cells,
                 self.static_influence.as_ref(),
                 &self.fire_influence,
-            // )
-        );
+            );
             let dist = WeightedIndex::new(weights).unwrap();
             let opted_dist = empty_cells[dist.sample(rng)];
-            updates // look for opted disk in the hashmap
-                .entry(opted_dist)
-                .and_modify(|c: &mut Vec<EvacueeCell>| c.push(*val)) // if it exists, add the evacuee who wants to occupy the wanted square to the queue
-                .or_insert(vec![*val]); // else create a new vector with the evacuee in
+            if self.escape_handler.is_exit(&opted_dist) {
+                self.escape_handler.escaped(*val, self.step as usize);
+            } else {
+                updates // look for opted disk in the hashmap
+                    .entry(opted_dist)
+                    .and_modify(|c: &mut Vec<EvacueeCell>| c.push(*val)) // if it exists, add the evacuee who wants to occupy the wanted square to the queue
+                    .or_insert(vec![*val]); // else create a new vector with the evacuee in
+            }
         }
-        self.death_handler.clear();
         (updates, still)
     }
 
@@ -242,8 +242,6 @@ impl CellGrid {
 
     #[cfg(any(feature = "visualization", feature = "visualization_wasm"))]
     pub fn fire_step(&mut self, fire_agent: &impl Transition, rng: &mut impl RngCore) {
-        use krabmaga::bevy::log;
-
         let mut updated = Vec::new();
         for x in 0..self.dim.0 as i32 {
             for y in 0..self.dim.1 as i32 {
@@ -257,16 +255,11 @@ impl CellGrid {
                         {
                             continue;
                         }
-                        if let Some(c) = self.grid.get_value(&Int2D { x: x + i, y: y + j }) {
-                            n.push(c);
-                        }
+                        n.push(self.grid.get_value(&Int2D { x: x + i, y: y + j }).unwrap())
                     }
                 }
                 if cell.spread(fire_agent, &n[..], rng) {
                     let loc = Int2D { x, y };
-                    if self.evac_grid.locs.get_read(&loc).is_some() {
-                        self.death_handler.update_death(loc);
-                    }
                     updated.push((loc, CellType::Fire));
                     self.fire_influence.on_step(&loc.into());
                 } else {
@@ -367,6 +360,7 @@ impl State for CellGrid {
         self.evac_grid.update();
         schedule.schedule_repeating(Box::new(fire_rules), 0., 0);
         schedule.schedule_repeating(Box::new(evac_agent), 0., 1);
+        dbg!("===========NEW SIM==============");
     }
 }
 

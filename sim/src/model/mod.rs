@@ -1,4 +1,5 @@
 pub mod death;
+pub mod escape;
 pub mod evacuee_mod;
 pub mod fire_mod;
 pub mod misc;
