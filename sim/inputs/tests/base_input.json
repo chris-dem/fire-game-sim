@@ -1,12 +1,33 @@
-
 {
-    "width" : 25,
-    "height" : 25,
-    "init" :{
-    "initial_grid" : [
-        [1,1]
-    ],
-    "initial_evac_grid" : [],
-    "fire_spread" : 0.7
-} 
+  "dim": [
+    31,
+    31
+  ],
+  "sim_type": "Total",
+  "setup": {
+    "map_seed": 31,
+    "initial_locs": "Random",
+    "evac_number": 10,
+    "initial_evac_strats": "Random",
+    "initial_evac_prob_dist": "Random",
+    "fire_spread": {
+      "Fixed": 0.3
+    }
+  },
+  "fire": {
+    "movement": {
+      "ClosestDistance": "Random"
+    },
+    "aspiration": {
+      "LogAspiration": "Random"
+    },
+    "ratio": {
+      "Root": "Random"
+    }
+  },
+  "escape": "TimeTracker",
+  "death": "AnnounceInput",
+  "static_input": {
+    "ClosestToExit": "Random"
+  }
 }

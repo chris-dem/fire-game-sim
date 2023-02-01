@@ -6,7 +6,7 @@ pub trait RatioStrategy {
     fn calculate_ratio(&self, fire_d: f32) -> f32;
 }
 
-pub struct RootDist(f32);
+pub struct RootDist(pub f32);
 
 impl Default for RootDist {
     fn default() -> Self {

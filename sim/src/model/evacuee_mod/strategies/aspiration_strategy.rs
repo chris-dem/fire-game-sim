@@ -6,7 +6,7 @@ pub trait AspirationStrategy {
     fn calculate_asp(&self, numb_cells: usize) -> f32;
 }
 
-pub struct LogAspManip(f32);
+pub struct LogAspManip(pub f32);
 
 impl Default for LogAspManip {
     fn default() -> Self {

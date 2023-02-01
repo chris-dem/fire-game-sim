@@ -18,7 +18,7 @@ pub trait StaticInfluence {
 /// Structure that implements the Static Influence trait
 /// Method used:
 /// $$
-///  { 1 \over |x|+1}
+///  sqrt(distsq)
 /// $$
 #[derive(Debug, Clone)]
 pub struct ExitInfluence {
@@ -38,7 +38,7 @@ impl Default for ExitInfluence {
     fn default() -> Self {
         Self {
             s_effect: 0.5,
-            end_pos: Loc(DEFAULT_WIDTH as i32 / 2, DEFAULT_HEIGHT as i32 + 1),
+            end_pos: Loc(DEFAULT_WIDTH as i32 / 2, DEFAULT_HEIGHT as i32),
         }
     }
 }
@@ -75,7 +75,7 @@ mod tests {
 
     #[test]
     fn static_influence_testing_on_a_random_setting() {
-        let smax = vec![1. / (5. as f32 + 1.), 1. / (9. as f32 + 1.)];
+        let smax = vec![(4. as f32 + 1.).sqrt(), (9. as f32).sqrt()];
         let infl = ExitInfluence::new(1., &Loc(3, 1));
         assert_relative_eq!(infl.static_influence(&Int2D { x: 1, y: 0 },), smax[0]); // up
         assert_relative_eq!(infl.static_influence(&Int2D { x: 0, y: 1 }), smax[1]);
@@ -92,7 +92,7 @@ mod tests {
             Int2D { x: 1, y: 2 },
         ]
         .into_iter()
-        .map(|el| inverse_plus_one(distsq(&el, &end_pos)))
+        .map(|el| distsq(&el, &end_pos).sqrt())
         .collect::<Vec<_>>();
 
         let infl = ExitInfluence::new(1., &end_pos.into());

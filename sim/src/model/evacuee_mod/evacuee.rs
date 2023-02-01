@@ -1,6 +1,4 @@
-use super::fire_influence::dynamic_influence::DynamicInfluence;
 use super::fire_influence::fire_influence::FireInfluence;
-use super::fire_influence::frontier::{Frontier, FrontierStructure};
 use super::strategy::Strategy;
 use super::{evacuee_cell::EvacueeCell, static_influence::StaticInfluence};
 use crate::model::misc::misc_func::Loc;

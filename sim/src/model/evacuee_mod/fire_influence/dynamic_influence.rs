@@ -16,7 +16,7 @@ pub trait DynamicInfluence {
 /// r_t = cost-to-ratio
 /// A_t = Aspiration
 #[derive(Debug)]
-pub struct ClosestDistance(f32);
+pub struct ClosestDistance(pub f32);
 
 impl Default for ClosestDistance {
     fn default() -> Self {

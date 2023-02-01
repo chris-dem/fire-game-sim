@@ -1,14 +1,14 @@
-use std::collections::HashSet;
-
 use crate::model::fire_mod::fire_cell::*;
 use itertools::Itertools;
 use krabmaga::engine::fields::field::Field;
 use krabmaga::engine::state::State;
 use krabmaga::engine::{fields::dense_number_grid_2d::DenseNumberGrid2D, location::Int2D};
+use krabmaga::*;
 use krabmaga::{Distribution, HashMap, Rng};
 use rand::distributions::WeightedIndex;
 use rand::RngCore;
 use serde::Deserialize;
+use std::collections::HashSet;
 
 use super::death::{Announcer, DeathHandler};
 use super::escape::{EscapeHandler, EvacTime, TimeEscape};
@@ -32,7 +32,14 @@ pub const DEFAULT_WIDTH: u32 = 51;
 pub struct InitialConfig {
     pub initial_grid: Vec<(i32, i32)>,
     pub initial_evac_grid: Vec<EvacueeCell>,
+    // TODO
     pub fire_spread: f32,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub enum SimType {
+    Flow,
+    Total,
 }
 
 /// Grid in which the simulation will be running on
@@ -40,13 +47,14 @@ pub struct InitialConfig {
 ///
 /// Holds current step size, grid, dimensions and initial configuration
 pub struct CellGrid {
+    pub simulation_type: SimType,
     pub step: u64,
     pub grid: DenseNumberGrid2D<CellType>,
     pub evac_grid: DenseNumberGrid2D<EvacueeCell>,
     pub dim: (u32, u32),
     pub initial_config: InitialConfig,
     pub fire_influence: FireInfluence,
-    pub escape_handler: Box<dyn EscapeHandler<Storage = EvacTime> + Send>,
+    pub escape_handler: Box<dyn EscapeHandler<EvacTime> + Send>,
     pub death_handler: Box<dyn DeathHandler + Send>,
     pub static_influence: Box<dyn StaticInfluence + Send>,
 }
@@ -55,6 +63,7 @@ impl Default for CellGrid {
     fn default() -> Self {
         Self {
             step: 0,
+            simulation_type: SimType::Total,
             grid: DenseNumberGrid2D::new(DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
             evac_grid: DenseNumberGrid2D::new(DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
             dim: (DEFAULT_WIDTH, DEFAULT_HEIGHT),
@@ -122,6 +131,8 @@ impl CellGrid {
         }
         empty_vec
     }
+
+    #[cfg(any(feature = "visualization", feature = "visualization_wasm"))]
     fn get_distinations(
         &mut self,
         evacuee_agent: &EvacueeAgent,
@@ -160,6 +171,61 @@ impl CellGrid {
             }
         }
         (updates, still)
+    }
+
+    #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
+    fn get_distinations(
+        &mut self,
+        evacuee_agent: &EvacueeAgent,
+        rng: &mut impl RngCore,
+    ) -> (HashMap<Loc, Vec<EvacueeCell>>, Vec<EvacueeCell>) {
+        use std::cell::RefCell;
+
+        let updates = RefCell::new(HashMap::new());
+        let still = RefCell::new(vec![]);
+        let dead = RefCell::new(vec![]);
+        let escape = RefCell::new(vec![]);
+        let rng = RefCell::new(rng);
+        // Extract intended movements of every agent, if agents want to move to the same square, add them to the queue
+        self.evac_grid.iter_values(|loc, val| {
+            if self.grid.get_value(loc).unwrap() == CellType::Fire {
+                // self.death_handler.update_death(*loc);
+                dead.borrow_mut().push(*loc);
+                return;
+            }
+            let empty_cells = self.get_neigh(val.x, val.y);
+            if empty_cells.len() == 0 {
+                // If there are no available cells, stay still
+                still.borrow_mut().push(*val);
+                return;
+            }
+            let weights = evacuee_agent.calculate_probabilities(
+                // else calculate the probability distribution of the neighbouring cells
+                &empty_cells,
+                self.static_influence.as_ref(),
+                &self.fire_influence,
+            );
+            let dist = WeightedIndex::new(weights).unwrap();
+            let opted_dist = empty_cells[dist.sample(*rng.borrow_mut())];
+            if self.escape_handler.is_exit(&opted_dist) {
+                // self.escape_handler.escaped(*val, self.step as usize);
+                escape.borrow_mut().push((*val, self.step as usize))
+            } else {
+                updates // look for opted disk in the hashmap
+                    .borrow_mut()
+                    .entry(opted_dist)
+                    .and_modify(|c: &mut Vec<EvacueeCell>| c.push(*val)) // if it exists, add the evacuee who wants to occupy the wanted square to the queue
+                    .or_insert(vec![*val]); // else create a new vector with the evacuee in
+            }
+        });
+        for loc in dead.take().into_iter() {
+            self.death_handler.update_death(loc);
+        }
+
+        for (val, step) in escape.take().into_iter() {
+            self.escape_handler.escaped(val, step);
+        }
+        (updates.take(), still.take())
     }
 
     fn play_game(
@@ -227,20 +293,22 @@ impl CellGrid {
 
     pub fn evacuee_step(&mut self, evacuee_agent: &EvacueeAgent, rng: &mut impl RngCore) {
         let (updates, still) = self.get_distinations(evacuee_agent, rng);
-        // dbg!(&updates);
         let lp = updates //calculates which agent will occupy their intended square based on their game rules and preferences
             .into_iter()
             .flat_map(|(dist, competing)| self.play_game(dist, competing, rng, evacuee_agent))
             .chain(still.into_iter())
             .collect::<Vec<_>>();
-        // dbg!(&lp);
         for e in lp.into_iter() {
             self.evac_grid
                 .set_value_location(e, &Int2D { x: e.x, y: e.y })
         }
     }
 
-    #[cfg(any(feature = "visualization", feature = "visualization_wasm"))]
+    // #[cfg(any(feature = "visualization", feature = "visualization_wasm"))]
+    /// Encapsulates the entire fire step
+    /// # Arguments
+    /// `fire_agent` - Agent that implements the Transition trait. Will be responsbilee for the fire spread
+    ///
     pub fn fire_step(&mut self, fire_agent: &impl Transition, rng: &mut impl RngCore) {
         let mut updated = Vec::new();
         for x in 0..self.dim.0 as i32 {
@@ -272,45 +340,36 @@ impl CellGrid {
         }
     }
 
-    // TODO FIX FOR UNVISUALIZED VERSION
-    #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
-    /// Encapsulates the entire fire step
-    /// # Arguments
-    /// `fire_agent` - Agent that implements the Transition trait. Will be responsbilee for the fire spread
-    ///
-    pub fn fire_step(
-        &mut self,
-        fire_agent: &impl Transition<Cell = CellType>,
-        rng: &mut impl RngCore,
-    ) {
-        let updated: RefCell<Vec<(Int2D, CellType)>> = RefCell::new(Vec::new());
-        let rng = RefCell::new(thread_rng());
-        self.grid.iter_values(|&Int2D { x, y }, cell| {
-            let mut n = Vec::with_capacity(8);
-            for i in -1..=1 {
-                for j in -1..=1 {
-                    if (i == 0 && j == 0)
-                        || !within_bounds(x + i, self.dim.0 as i32)
-                        || !within_bounds(y + j, self.dim.1 as i32)
-                    {
-                        continue;
-                    }
-                    if let Some(c) = self.grid.get_value(&Int2D { x: x + i, y: y + j }) {
-                        n.push(c);
-                    }
-                }
-            }
-            if cell.spread(fire_agent, &n[..], &mut *rng.borrow_mut()) {
-                updated.borrow_mut().push((Int2D { x, y }, CellType::Fire));
-            } else {
-                updated.borrow_mut().push((Int2D { x, y }, cell));
-            }
-        });
+    // #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
+    // pub fn fire_step(&mut self, fire_agent: &impl Transition, rng: &mut impl RngCore) {
+    //     let updated: RefCell<Vec<(Int2D, CellType)>> = RefCell::new(Vec::new());
+    //     let rng = RefCell::new(thread_rng());
+    //     self.grid.iter_values(|&Int2D { x, y }, cell| {
+    //         let mut n = Vec::with_capacity(8);
+    //         for i in -1..=1 {
+    //             for j in -1..=1 {
+    //                 if (i == 0 && j == 0)
+    //                     || !within_bounds(x + i, self.dim.0 as i32)
+    //                     || !within_bounds(y + j, self.dim.1 as i32)
+    //                 {
+    //                     continue;
+    //                 }
+    //                 if let Some(c) = self.grid.get_value(&Int2D { x: x + i, y: y + j }) {
+    //                     n.push(c);
+    //                 }
+    //             }
+    //         }
+    //         if cell.spread(fire_agent, &n[..], &mut *rng.borrow_mut()) {
+    //             updated.borrow_mut().push((Int2D { x, y }, CellType::Fire));
+    //         } else {
+    //             updated.borrow_mut().push((Int2D { x, y }, cell));
+    //         }
+    //     });
 
-        for (pos, cell) in updated.take().into_iter() {
-            self.grid.set_value_location(cell, &pos)
-        }
-    }
+    //     for (pos, cell) in updated.take().into_iter() {
+    //         self.grid.set_value_location(cell, &pos)
+    //     }
+    // }
 }
 
 impl State for CellGrid {
@@ -336,13 +395,28 @@ impl State for CellGrid {
         self
     }
 
+    #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
+    fn after_step(&mut self, schedule: &mut engine::schedule::Schedule) {
+        plot!(
+            "Evacuees".to_owned(),
+            "Steps".to_owned(),
+            schedule.step as f64,
+            (self.initial_config.initial_evac_grid.len()) as f64
+        );
+    }
+
+    fn end_condition(&mut self, _schedule: &mut krabmaga::engine::schedule::Schedule) -> bool {
+        self.fire_influence.fire_area == (self.dim.0 * self.dim.1) as usize
+    }
+
+    // Determine fire_out
     fn reset(&mut self) {
         self.step = 0;
         self.grid = DenseNumberGrid2D::new(self.dim.0 as i32, self.dim.1 as i32);
         self.evac_grid = DenseNumberGrid2D::new(self.dim.0 as i32, self.dim.1 as i32);
     }
 
-    /// TODO give better instatiation
+    #[cfg(any(feature = "visualization", feature = "visualization_wasm"))]
     fn init(&mut self, schedule: &mut krabmaga::engine::schedule::Schedule) {
         self.reset();
         self.set_intial();
@@ -362,13 +436,41 @@ impl State for CellGrid {
         schedule.schedule_repeating(Box::new(evac_agent), 0., 1);
         dbg!("===========NEW SIM==============");
     }
+
+    #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
+    fn init(&mut self, schedule: &mut krabmaga::engine::schedule::Schedule) {
+        use krabmaga::{addplot, log};
+
+        self.reset();
+        self.set_intial();
+        let fire_rules = FireRules {
+            spread: self.initial_config.fire_spread,
+            id: 1,
+        };
+        let evac_agent = EvacueeAgent {
+            id: 1,
+            lc: 0.7,
+            ld: 0.9,
+        };
+
+        // self.grid.update();
+        // self.evac_grid.update();
+        schedule.schedule_repeating(Box::new(fire_rules), 0., 0);
+        schedule.schedule_repeating(Box::new(evac_agent), 0., 1);
+        addplot!(
+            String::from("Evacuees"),
+            String::from("Steps"),
+            String::from("Number of Agents"),
+            true
+        );
+    }
 }
 
 #[cfg(all(test, any(feature = "visualization", feature = "visualization_wasm")))]
 mod tests {
 
     use super::*;
-    use crate::model::state_builder::CellGridBuilder;
+    // use crate::model::state_builder::CellGridBuilder;
     use crate::model::transition::MockTransition;
     use itertools::Itertools;
     use krabmaga::engine::fields::field::Field;
@@ -377,6 +479,8 @@ mod tests {
     use rand_chacha::ChaCha12Rng;
 
     mod fire_step {
+        use crate::model::state_builder::CellGridBuilder;
+
         use super::*;
         #[test]
         fn test_fire_step_with_high_spread() {

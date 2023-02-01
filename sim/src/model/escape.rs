@@ -6,11 +6,10 @@ use super::{
     state::{DEFAULT_HEIGHT, DEFAULT_WIDTH},
 };
 
-pub trait EscapeHandler {
-    type Storage;
+pub trait EscapeHandler<T> {
     fn escaped(&mut self, evac: EvacueeCell, step: usize);
 
-    fn get_escaped(&self) -> Vec<Self::Storage>;
+    fn get_escaped(&self) -> Vec<T>;
 
     fn is_exit(&self, loc: &Loc) -> bool;
 }
@@ -38,9 +37,7 @@ impl Default for TimeEscape {
     }
 }
 
-impl EscapeHandler for TimeEscape {
-    type Storage = EvacTime;
-
+impl EscapeHandler<EvacTime> for TimeEscape {
     fn escaped(&mut self, evac: EvacueeCell, step: usize) {
         dbg!("Evacuee  escaped");
         self.escaped_evac.push(EvacTime {
@@ -49,7 +46,7 @@ impl EscapeHandler for TimeEscape {
         })
     }
 
-    fn get_escaped(&self) -> Vec<Self::Storage> {
+    fn get_escaped(&self) -> Vec<EvacTime> {
         self.escaped_evac.clone()
     }
 
