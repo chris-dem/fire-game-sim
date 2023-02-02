@@ -16,7 +16,8 @@ use super::evacuee_mod::evacuee::EvacueeAgent;
 use super::evacuee_mod::evacuee_cell::EvacueeCell;
 use super::evacuee_mod::fire_influence::fire_influence::FireInfluence;
 use super::evacuee_mod::static_influence::{ExitInfluence, StaticInfluence};
-use super::evacuee_mod::strategy::rules;
+use super::evacuee_mod::strategy::{rules, RuleCase};
+// use super::file_handling::file_handler::FileHandler;
 use super::misc::misc_func::Loc;
 use super::transition::Transition;
 use crate::model::fire_mod::fire_spread::FireRules;
@@ -48,6 +49,7 @@ pub enum SimType {
 /// Holds current step size, grid, dimensions and initial configuration
 pub struct CellGrid {
     pub simulation_type: SimType,
+    pub iteration: u16,
     pub step: u64,
     pub grid: DenseNumberGrid2D<CellType>,
     pub evac_grid: DenseNumberGrid2D<EvacueeCell>,
@@ -57,12 +59,14 @@ pub struct CellGrid {
     pub escape_handler: Box<dyn EscapeHandler<EvacTime> + Send>,
     pub death_handler: Box<dyn DeathHandler + Send>,
     pub static_influence: Box<dyn StaticInfluence + Send>,
+    // pub file_handler: FileHandler,
 }
 
 impl Default for CellGrid {
     fn default() -> Self {
         Self {
             step: 0,
+            iteration: 0,
             simulation_type: SimType::Total,
             grid: DenseNumberGrid2D::new(DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
             evac_grid: DenseNumberGrid2D::new(DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
@@ -72,6 +76,7 @@ impl Default for CellGrid {
             death_handler: Box::new(Announcer::default()),
             escape_handler: Box::new(TimeEscape::default()),
             fire_influence: Default::default(),
+            // file_handler: Default::default(),
         }
     }
 }
@@ -218,6 +223,8 @@ impl CellGrid {
                     .or_insert(vec![*val]); // else create a new vector with the evacuee in
             }
         });
+        // self.file_handler.curr_line.escaped += escape.borrow().len();
+        // self.file_handler.curr_line.dead += dead.borrow().len();
         for loc in dead.take().into_iter() {
             self.death_handler.update_death(loc);
         }
@@ -229,7 +236,7 @@ impl CellGrid {
     }
 
     fn play_game(
-        &self,
+        &mut self,
         dist: Loc,
         competing: Vec<EvacueeCell>,
         rng: &mut impl RngCore,
@@ -254,14 +261,28 @@ impl CellGrid {
                 .map(|e| e.strategy)
                 .collect::<Vec<_>>(),
         );
+        // match &game {
+        //     RuleCase::AllCoop => self.file_handler.curr_line.all_cnt += 1,
+        //     RuleCase::AllButOneCoop => self.file_handler.curr_line.abo_cnt += 1,
+        //     RuleCase::Argument => self.file_handler.curr_line.no_cnt += 1,
+        // };
         let n = competing.len();
         let competing: Vec<_> = competing
             .into_iter()
-            .map(|e| (self.fire_influence.calculcate_rewards(n, &Loc(e.x, e.y)), e))
+            .map(|e| {
+                (
+                    self.fire_influence.calculcate_rewards(
+                        n,
+                        &Loc(e.x, e.y),
+                        // &mut self.file_handler,
+                    ),
+                    e,
+                )
+            })
             .collect();
 
         let asp = self.fire_influence.calculate_aspiration();
-
+        // self.file_handler.curr_line.asp = asp;
         let ids = rules(game, competing, rng, asp);
         let lis = if let Ok(ids) = ids {
             [(dist, ids[0])]
@@ -276,6 +297,7 @@ impl CellGrid {
         };
         lis.into_iter()
             .map(|(c, (stim, evac))| {
+                // self.file_handler.curr_line.reward.update(stim);
                 let pr_prime = evac_agent.calculate_strategies(&evac, stim);
                 let mut strategy = evac.strategy;
                 if rng.gen_bool(pr_prime as f64) {
@@ -396,13 +418,15 @@ impl State for CellGrid {
     }
 
     #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
-    fn after_step(&mut self, schedule: &mut engine::schedule::Schedule) {
-        plot!(
-            "Evacuees".to_owned(),
-            "Steps".to_owned(),
-            schedule.step as f64,
-            (self.initial_config.initial_evac_grid.len()) as f64
-        );
+    fn after_step(&mut self, _schedule: &mut engine::schedule::Schedule) {
+        // plot!(
+        //     "Evacuees".to_owned(),
+        //     "Steps".to_owned(),
+        // todo!("Implement file handler")
+        // if self.step % 10 == 0 {
+        //     self.file_handler.add_line();
+        // }
+        // );
     }
 
     fn end_condition(&mut self, _schedule: &mut krabmaga::engine::schedule::Schedule) -> bool {
@@ -412,6 +436,9 @@ impl State for CellGrid {
     // Determine fire_out
     fn reset(&mut self) {
         self.step = 0;
+        // self.file_handler.update_file(self.iteration);
+        // self.file_handler.reset();
+        self.fire_influence.fire_state.reset();
         self.grid = DenseNumberGrid2D::new(self.dim.0 as i32, self.dim.1 as i32);
         self.evac_grid = DenseNumberGrid2D::new(self.dim.0 as i32, self.dim.1 as i32);
     }
@@ -439,8 +466,7 @@ impl State for CellGrid {
 
     #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
     fn init(&mut self, schedule: &mut krabmaga::engine::schedule::Schedule) {
-        use krabmaga::{addplot, log};
-
+        self.iteration += 1;
         self.reset();
         self.set_intial();
         let fire_rules = FireRules {
@@ -457,12 +483,6 @@ impl State for CellGrid {
         // self.evac_grid.update();
         schedule.schedule_repeating(Box::new(fire_rules), 0., 0);
         schedule.schedule_repeating(Box::new(evac_agent), 0., 1);
-        addplot!(
-            String::from("Evacuees"),
-            String::from("Steps"),
-            String::from("Number of Agents"),
-            true
-        );
     }
 }
 

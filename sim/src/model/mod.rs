@@ -1,6 +1,7 @@
 pub mod death;
 pub mod escape;
 pub mod evacuee_mod;
+pub mod file_handling;
 pub mod fire_mod;
 pub mod input_handling;
 pub mod misc;

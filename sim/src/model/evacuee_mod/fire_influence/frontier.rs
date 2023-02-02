@@ -12,6 +12,8 @@ pub trait FrontierStructure {
     fn on_fire_update(&mut self, loc: &Loc);
 
     fn closest_point(&self, loc: &Loc) -> Option<f32>;
+
+    fn reset(&mut self);
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +86,12 @@ impl FrontierStructure for Frontier {
 
     fn closest_point(&self, loc: &Loc) -> Option<f32> {
         self.nearest(loc)
+    }
+
+    fn reset(&mut self) {
+        self.trees.iter_mut().for_each(|tree| {
+            tree.clear();
+        });
     }
 }
 #[cfg(test)]

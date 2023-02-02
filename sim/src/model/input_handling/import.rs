@@ -1,5 +1,4 @@
 use rand::prelude::*;
-use rand_distr::Distribution;
 use serde::Deserialize;
 
 use crate::model::{

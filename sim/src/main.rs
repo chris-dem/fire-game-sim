@@ -22,22 +22,16 @@ pub static TOROIDAL: bool = true;
 // Main used when only the simulation should run, without any visualization.
 #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
 fn main() -> Result<()> {
-    // let step = 100;
-
-    // let num_agents = 20;
-    // let dim: (f32, f32) = (400., 400.);
-
     use std::io::BufReader;
 
     use crate::model::input_handling::{import::ImportImproved, to_sim::ToSimulationStruct};
 
-    let file = fs::File::open("./inputs/tests/base_input.json")?;
+    let file_name = "base_input.json";
+    let file = fs::File::open(format!("./inputs/tests/{}", file_name))?;
     let buf = BufReader::new(file);
     let init: ImportImproved = serde_json::from_reader(buf)?;
     let mut rng = thread_rng();
-    let state = init.to_struct(&mut rng, &());
-
-    // let state = Sea::new(dim, num_agents);
+    let state = init.to_struct(&mut rng, &file_name.to_owned());
 
     let _ = simulate!(state, 500, 10);
     Ok(())

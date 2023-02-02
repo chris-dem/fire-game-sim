@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
 use itertools::Itertools;
-use krabmaga::engine::{fields::dense_number_grid_2d::DenseNumberGrid2D, location::Int2D};
+use krabmaga::engine::fields::dense_number_grid_2d::DenseNumberGrid2D;
 use rand::prelude::*;
-use rand_chacha::{ChaCha8Rng, ChaChaRng};
+use rand_chacha::ChaCha8Rng;
 
 use crate::model::{
     death::{Announcer, DeathHandler},
@@ -20,8 +20,8 @@ use crate::model::{
             aspiration_strategy::{AspirationStrategy, LogAspManip},
             ratio_strategy::{RatioStrategy, RootDist},
         },
-        strategy::Strategy,
     },
+    // file_handling::file_handler::FileHandler,
     misc::misc_func::Loc,
     state::{CellGrid, InitialConfig},
 };
@@ -209,7 +209,7 @@ impl ToSimulationStruct for DeathInput {
 
     type P = ();
 
-    fn to_struct(&self, rng: &mut dyn RngCore, params: &Self::P) -> Self::T {
+    fn to_struct(&self, _rng: &mut dyn RngCore, _params: &Self::P) -> Self::T {
         let p = match self {
             DeathInput::AnnounceInput => Announcer::default(),
         };
@@ -235,23 +235,25 @@ impl ToSimulationStruct for StaticInput {
 impl ToSimulationStruct for ImportImproved {
     type T = CellGrid;
 
-    type P = ();
+    type P = String;
 
     fn to_struct(&self, rng: &mut dyn RngCore, params: &Self::P) -> Self::T {
         let (w, h) = self.dim;
         CellGrid {
             step: 0,
+            iteration: 0,
             simulation_type: self.sim_type,
             grid: DenseNumberGrid2D::new(w as i32, h as i32),
             evac_grid: DenseNumberGrid2D::new(w as i32, h as i32),
             dim: self.dim,
             initial_config: self.setup.to_struct(rng, &(w as i32, h as i32)),
             fire_influence: self.fire.to_struct(rng, &(w as usize)),
-            escape_handler: self.escape.to_struct(rng, params),
-            death_handler: self.death.to_struct(rng, params),
+            escape_handler: self.escape.to_struct(rng, &()),
+            death_handler: self.death.to_struct(rng, &()),
             static_influence: self
                 .static_input
                 .to_struct(rng, &Loc(w as i32 / 2, h as i32)),
+            // file_handler: FileHandler::new(params),
         }
     }
 }
