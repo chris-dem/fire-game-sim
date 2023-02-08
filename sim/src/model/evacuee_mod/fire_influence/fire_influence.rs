@@ -28,6 +28,14 @@ pub struct FireInfluence {
     pub ratio: Box<dyn RatioStrategy + Send>,
 }
 
+
+impl FireInfluence {
+    pub fn reset(&mut self) {
+        self.fire_area = 0;
+        self.fire_state.reset();
+    }
+}
+
 impl Default for FireInfluence {
     fn default() -> Self {
         Self {
@@ -60,13 +68,15 @@ impl FireInfluence {
     #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
     pub fn calculcate_rewards(&self, n: usize, point: &Loc) -> RSTP {
         use krabmaga::{plot, *};
+
+        use crate::model::misc::misc_func::round;
         let d = self.fire_state.closest_point(point).unwrap_or(0.5);
         let r_t = self.ratio.calculate_ratio(d); // If there are no points we set it to its smallest possible value
         plot!(
             "RatioDistance".to_owned(),
             "series".to_owned(),
-            d as f64,
-            r_t as f64,
+            round(d as f64,3),
+            round(r_t as f64,3),
             csv : true
         );
         strategy_rewards(n, r_t)

@@ -18,7 +18,7 @@ mod visualization;
 // Main used when only the simulation should run, without any visualization.
 #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
 fn main() -> Result<()> {
-    use std::io::BufReader;
+    use std::{io::BufReader, os};
     use clap::Parser;
 
     use crate::model::{input_handling::{import::ImportImproved, to_sim::ToSimulationStruct}, arg_handling::MyArgs};
@@ -28,6 +28,7 @@ fn main() -> Result<()> {
 
     // let file_name = "fire_spread/f_s_test_val_0.1.json";
     let file_name = args.file_name;
+    
     let file = fs::File::open(format!("./inputs/tests/{}", file_name))?;
     let buf = BufReader::new(file);
     let init: ImportImproved = serde_json::from_reader(buf)?;

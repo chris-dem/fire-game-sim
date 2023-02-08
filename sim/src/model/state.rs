@@ -1,4 +1,5 @@
 use crate::model::fire_mod::fire_cell::*;
+use crate::model::misc::misc_func::round;
 use rand_chacha::ChaChaRng;
 use itertools::Itertools;
 use krabmaga::engine::fields::field::Field;
@@ -345,8 +346,8 @@ impl CellGrid {
                     plot!(
                         "RewardAspiration".to_owned(),
                         "series".to_owned(),
-                        asp as f64,
-                        stim as f64,
+                        round(asp as f64,3) ,
+                        round(stim as f64,3),
                         csv:true
                     );
                 }
@@ -489,6 +490,14 @@ impl State for CellGrid {
             csv : true
         );
 
+        plot!(
+            "AspirationArea".to_owned(),
+            "series".to_owned(),
+            self.fire_influence.fire_area as f64,
+            round(self.fire_influence.aspiration.calculate_asp(self.fire_influence.fire_area) as f64,3),
+            csv : true
+        );
+
         let f = RefCell::new(vec![]);
 
         self.evac_grid
@@ -506,7 +515,7 @@ impl State for CellGrid {
                 "CoopFrequency".to_owned(),
                 "series".to_owned(),
                 schedule.step as f64,
-                coops as f64 / total_num as f64,
+                round(coops as f64 / total_num as f64,3),
                 csv : true
             );
         }
@@ -515,7 +524,7 @@ impl State for CellGrid {
     #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
     fn end_condition(&mut self, _schedule: &mut krabmaga::engine::schedule::Schedule) -> bool {
         let cnt = RefCell::new(0usize);
-        self.evac_grid.iter_values_unbuffered(|_,_| *cnt.borrow_mut() += 1);
+        self.evac_grid.iter_values(|_,_| *cnt.borrow_mut() += 1);
         self.fire_influence.fire_area == (self.dim.0 * self.dim.1) as usize || cnt.take() == 0
     }
 
@@ -524,8 +533,8 @@ impl State for CellGrid {
         self.step = 0;
         self.escape_handler.reset();
         self.death_handler.reset();
+        self.fire_influence.reset();
         self.escape_handler.reset();
-        self.fire_influence.fire_state.reset();
         self.grid = DenseNumberGrid2D::new(self.dim.0 as i32, self.dim.1 as i32);
         self.evac_grid = DenseNumberGrid2D::new(self.dim.0 as i32, self.dim.1 as i32);
     }

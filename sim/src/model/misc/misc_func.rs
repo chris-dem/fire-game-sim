@@ -1,4 +1,5 @@
 use krabmaga::engine::location::Int2D;
+use rand_distr::num_traits::Pow;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Loc(pub i32, pub i32);
@@ -16,6 +17,12 @@ impl From<Loc> for Int2D {
             y: value.1,
         }
     }
+}
+
+
+pub fn round(s : f64, dec : u8) -> f64 {
+    let b = 10.pow(dec) as f64;
+    (s * b).round() / b
 }
 
 // /// Implementation of $f(x) = 1 / (x + 1)$
