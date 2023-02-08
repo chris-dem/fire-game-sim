@@ -1,13 +1,17 @@
 use crate::model::fire_mod::fire_cell::*;
+use rand_chacha::ChaChaRng;
 use itertools::Itertools;
 use krabmaga::engine::fields::field::Field;
 use krabmaga::engine::state::State;
 use krabmaga::engine::{fields::dense_number_grid_2d::DenseNumberGrid2D, location::Int2D};
+use krabmaga::rand as krand;
 use krabmaga::*;
 use krabmaga::{Distribution, HashMap, Rng};
 use rand::distributions::WeightedIndex;
+use rand::prelude::*;
 use rand::RngCore;
 use serde::Deserialize;
+use std::cell::RefCell;
 use std::collections::HashSet;
 
 use super::death::{Announcer, DeathHandler};
@@ -16,7 +20,7 @@ use super::evacuee_mod::evacuee::EvacueeAgent;
 use super::evacuee_mod::evacuee_cell::EvacueeCell;
 use super::evacuee_mod::fire_influence::fire_influence::FireInfluence;
 use super::evacuee_mod::static_influence::{ExitInfluence, StaticInfluence};
-use super::evacuee_mod::strategy::{rules, RuleCase};
+use super::evacuee_mod::strategy::{rules};
 // use super::file_handling::file_handler::FileHandler;
 use super::misc::misc_func::Loc;
 use super::transition::Transition;
@@ -31,10 +35,13 @@ pub const DEFAULT_WIDTH: u32 = 51;
 /// such as parameters
 #[derive(Debug, Default, Clone, Deserialize)]
 pub struct InitialConfig {
-    pub initial_grid: Vec<(i32, i32)>,
-    pub initial_evac_grid: Vec<EvacueeCell>,
-    // TODO
-    pub fire_spread: f32,
+    pub initial_grid: Option<(i32, i32)>,
+    pub initial_evac_grid: Option<Vec<EvacueeCell>>,
+    pub evac_num: usize,
+    pub map_seed: Option<u64>,
+    pub lc : Option<f32>,
+    pub ld : Option<f32>,
+    pub fire_spread: Option<f32>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -51,6 +58,7 @@ pub struct CellGrid {
     pub simulation_type: SimType,
     pub iteration: u16,
     pub step: u64,
+    pub param_seed : Option<u64>,
     pub grid: DenseNumberGrid2D<CellType>,
     pub evac_grid: DenseNumberGrid2D<EvacueeCell>,
     pub dim: (u32, u32),
@@ -59,7 +67,6 @@ pub struct CellGrid {
     pub escape_handler: Box<dyn EscapeHandler<EvacTime> + Send>,
     pub death_handler: Box<dyn DeathHandler + Send>,
     pub static_influence: Box<dyn StaticInfluence + Send>,
-    // pub file_handler: FileHandler,
 }
 
 impl Default for CellGrid {
@@ -76,7 +83,7 @@ impl Default for CellGrid {
             death_handler: Box::new(Announcer::default()),
             escape_handler: Box::new(TimeEscape::default()),
             fire_influence: Default::default(),
-            // file_handler: Default::default(),
+            param_seed : None,
         }
     }
 }
@@ -87,21 +94,63 @@ pub fn within_bounds(val: i32, limit: i32) -> bool {
 
 impl CellGrid {
     /// Apply InitialConfiguration to the grid
-    pub fn set_intial(&mut self) {
-        let st: HashSet<(i32, i32)> =
-            HashSet::from_iter(self.initial_config.initial_grid.iter().cloned());
+    pub fn set_intial(&mut self, rng: &mut dyn RngCore) {
+        // TODO fix
+        let mut seed_rng = None;
+        let rng = self.initial_config.map_seed.map_or(rng, |c| {
+            seed_rng = Some(rand_chacha::ChaCha8Rng::seed_from_u64(c));
+            seed_rng.as_mut().unwrap()    
+        });
+        let fire_start = self.initial_config.initial_grid.unwrap_or_else(|| {
+            let y = 0;
+            let x = rng.gen_range(0i32..self.dim.0 as i32);
+            (x, y)
+        });
+
         let to_grid = (0..self.dim.0 * self.dim.1).map(|indx| {
             let el = (
                 indx as i32 % self.dim.1 as i32,
                 indx as i32 / self.dim.1 as i32,
             );
-            let c = if st.contains(&el) {
+            let c = if fire_start == el {
                 CellType::Fire
             } else {
                 CellType::Empty
             };
             (el, c)
         });
+        let mut hmap = HashSet::new();
+        hmap.insert(fire_start);
+        let to_evac_grid = self
+            .initial_config
+            .initial_evac_grid
+            .clone()
+            .unwrap_or_else(|| {
+                (0..self.initial_config.evac_num)
+                    .map(|_| {
+                        let loc;
+                        loop {
+                            let t = (
+                                rng.gen_range(0i32..self.dim.0 as i32),
+                                rng.gen_range(0i32..self.dim.0 as i32),
+                            );
+                            if !hmap.contains(&t) {
+                                hmap.insert(t);
+                                loc = t;
+                                break;
+                            };
+                        }
+                        let strat = rng.gen();
+                        let prob = rng.gen();
+                        EvacueeCell {
+                            strategy: strat,
+                            x: loc.0,
+                            y: loc.1,
+                            pr_c: prob,
+                        }
+                    })
+                    .collect_vec()
+            });
         for ((x, y), val) in to_grid {
             let loc = Int2D { x, y };
             self.grid.set_value_location(val, &loc);
@@ -110,7 +159,7 @@ impl CellGrid {
             }
         }
 
-        for e in self.initial_config.initial_evac_grid.iter() {
+        for e in to_evac_grid.iter() {
             self.evac_grid
                 .set_value_location(*e, &Int2D { x: e.x, y: e.y })
         }
@@ -184,8 +233,6 @@ impl CellGrid {
         evacuee_agent: &EvacueeAgent,
         rng: &mut impl RngCore,
     ) -> (HashMap<Loc, Vec<EvacueeCell>>, Vec<EvacueeCell>) {
-        use std::cell::RefCell;
-
         let updates = RefCell::new(HashMap::new());
         let still = RefCell::new(vec![]);
         let dead = RefCell::new(vec![]);
@@ -194,7 +241,7 @@ impl CellGrid {
         // Extract intended movements of every agent, if agents want to move to the same square, add them to the queue
         self.evac_grid.iter_values(|loc, val| {
             if self.grid.get_value(loc).unwrap() == CellType::Fire {
-                // self.death_handler.update_death(*loc);
+                //death_handler.update_death(*loc);
                 dead.borrow_mut().push(*loc);
                 return;
             }
@@ -249,7 +296,6 @@ impl CellGrid {
                 y: dist.1,
                 ..competing[0]
             }];
-            // return vec![(dist, competing[0])];
         }
 
         // Could be optimised with no need to return new location
@@ -261,11 +307,7 @@ impl CellGrid {
                 .map(|e| e.strategy)
                 .collect::<Vec<_>>(),
         );
-        // match &game {
-        //     RuleCase::AllCoop => self.file_handler.curr_line.all_cnt += 1,
-        //     RuleCase::AllButOneCoop => self.file_handler.curr_line.abo_cnt += 1,
-        //     RuleCase::Argument => self.file_handler.curr_line.no_cnt += 1,
-        // };
+
         let n = competing.len();
         let competing: Vec<_> = competing
             .into_iter()
@@ -274,7 +316,6 @@ impl CellGrid {
                     self.fire_influence.calculcate_rewards(
                         n,
                         &Loc(e.x, e.y),
-                        // &mut self.file_handler,
                     ),
                     e,
                 )
@@ -282,6 +323,7 @@ impl CellGrid {
             .collect();
 
         let asp = self.fire_influence.calculate_aspiration();
+
         // self.file_handler.curr_line.asp = asp;
         let ids = rules(game, competing, rng, asp);
         let lis = if let Ok(ids) = ids {
@@ -298,6 +340,16 @@ impl CellGrid {
         lis.into_iter()
             .map(|(c, (stim, evac))| {
                 // self.file_handler.curr_line.reward.update(stim);
+                #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
+                {
+                    plot!(
+                        "RewardAspiration".to_owned(),
+                        "series".to_owned(),
+                        asp as f64,
+                        stim as f64,
+                        csv:true
+                    );
+                }
                 let pr_prime = evac_agent.calculate_strategies(&evac, stim);
                 let mut strategy = evac.strategy;
                 if rng.gen_bool(pr_prime as f64) {
@@ -418,26 +470,61 @@ impl State for CellGrid {
     }
 
     #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
-    fn after_step(&mut self, _schedule: &mut engine::schedule::Schedule) {
-        // plot!(
-        //     "Evacuees".to_owned(),
-        //     "Steps".to_owned(),
-        // todo!("Implement file handler")
-        // if self.step % 10 == 0 {
-        //     self.file_handler.add_line();
-        // }
-        // );
+    fn after_step(&mut self, schedule: &mut engine::schedule::Schedule) {
+        use crate::model::evacuee_mod::strategy::Strategy;
+
+        plot!(
+            "Escaped".to_owned(),
+            "series".to_owned(),
+            schedule.step as f64,
+            self.escape_handler.get_escaped().len() as f64,
+            csv : true
+        );
+
+        plot!(
+            "Death".to_owned(),
+            "series".to_owned(),
+            schedule.step as f64,
+            self.death_handler.get_dead() as f64,
+            csv : true
+        );
+
+        let f = RefCell::new(vec![]);
+
+        self.evac_grid
+            .iter_values_unbuffered(|_, EvacueeCell { strategy, .. }| {
+                f.borrow_mut().push(*strategy);
+            });
+        let f = f.take();
+        let total_num = f.len();
+        let coops = f
+            .into_iter()
+            .filter(|s| *s == Strategy::Cooperative)
+            .count();
+        if total_num != 0 {
+            plot!(
+                "CoopFrequency".to_owned(),
+                "series".to_owned(),
+                schedule.step as f64,
+                coops as f64 / total_num as f64,
+                csv : true
+            );
+        }
     }
 
+    #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
     fn end_condition(&mut self, _schedule: &mut krabmaga::engine::schedule::Schedule) -> bool {
-        self.fire_influence.fire_area == (self.dim.0 * self.dim.1) as usize
+        let cnt = RefCell::new(0usize);
+        self.evac_grid.iter_values_unbuffered(|_,_| *cnt.borrow_mut() += 1);
+        self.fire_influence.fire_area == (self.dim.0 * self.dim.1) as usize || cnt.take() == 0
     }
 
     // Determine fire_out
     fn reset(&mut self) {
         self.step = 0;
-        // self.file_handler.update_file(self.iteration);
-        // self.file_handler.reset();
+        self.escape_handler.reset();
+        self.death_handler.reset();
+        self.escape_handler.reset();
         self.fire_influence.fire_state.reset();
         self.grid = DenseNumberGrid2D::new(self.dim.0 as i32, self.dim.1 as i32);
         self.evac_grid = DenseNumberGrid2D::new(self.dim.0 as i32, self.dim.1 as i32);
@@ -445,44 +532,109 @@ impl State for CellGrid {
 
     #[cfg(any(feature = "visualization", feature = "visualization_wasm"))]
     fn init(&mut self, schedule: &mut krabmaga::engine::schedule::Schedule) {
+        self.iteration += 1;
+        let mut rng = krand::thread_rng();
+        let mut holder = None;
+        let mut rng : &mut dyn RngCore = self.param_seed.map_or(&mut rng, |e| {
+            holder = Some(ChaChaRng::seed_from_u64(e));
+            holder.as_mut().unwrap()
+        });
         self.reset();
-        self.set_intial();
+        self.set_intial(&mut rng);
         let fire_rules = FireRules {
-            spread: self.initial_config.fire_spread,
+            spread: self.initial_config.fire_spread.unwrap_or_else(|| rng.gen()),
             id: 1,
         };
         let evac_agent = EvacueeAgent {
-            id: 1,
-            lc: 0.7,
-            ld: 0.9,
+            id: 2,
+            lc: self.initial_config.lc.unwrap_or_else(|| rng.gen()),
+            ld: self.initial_config.ld.unwrap_or_else(|| rng.gen()),
         };
 
+        // Update on the non visual feature does not copy between the state
+        // therefore do not update
         self.grid.update();
         self.evac_grid.update();
         schedule.schedule_repeating(Box::new(fire_rules), 0., 0);
         schedule.schedule_repeating(Box::new(evac_agent), 0., 1);
-        dbg!("===========NEW SIM==============");
+
+        // dbg!("===========NEW SIM==============");
     }
 
     #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
     fn init(&mut self, schedule: &mut krabmaga::engine::schedule::Schedule) {
+
         self.iteration += 1;
+        let mut rng = krand::thread_rng();
+        let mut holder = None;
+        let mut rng : &mut dyn RngCore = self.param_seed.map_or(&mut rng, |e| {
+            holder = Some(ChaChaRng::seed_from_u64(e));
+            holder.as_mut().unwrap()
+        });
         self.reset();
-        self.set_intial();
+        self.set_intial(&mut rng);
+        // TODO Param seed implementation
+        // Only thing really left to do is start generating resultsz\
         let fire_rules = FireRules {
-            spread: self.initial_config.fire_spread,
+            spread: self.initial_config.fire_spread.unwrap_or_else(|| rng.gen()),
             id: 1,
         };
         let evac_agent = EvacueeAgent {
-            id: 1,
-            lc: 0.7,
-            ld: 0.9,
+            id: 2,
+            lc: self.initial_config.lc.unwrap_or_else(|| rng.gen()),
+            ld: self.initial_config.ld.unwrap_or_else(|| rng.gen()),
         };
 
+        // Update on the non visual feature does not copy between the state
+        // therefore do not update
         // self.grid.update();
         // self.evac_grid.update();
         schedule.schedule_repeating(Box::new(fire_rules), 0., 0);
         schedule.schedule_repeating(Box::new(evac_agent), 0., 1);
+
+        // ================ PLOTS ================
+
+        addplot!(
+            "Escaped".to_owned(),
+            "Time step".to_owned(),
+            "Number of escaped evacuees".to_owned(),
+            csv : true
+        );
+
+        addplot!(
+            "Death".to_owned(),
+            "Time step".to_owned(),
+            "Number of dead evacuees".to_owned(),
+            csv : true
+        );
+
+        addplot!(
+            "AspirationArea".to_owned(),
+            "Fire Area".to_owned(),
+            "Escape Aspiration".to_owned(),
+            csv : true
+        );
+
+        addplot!(
+            "RatioDistance".to_owned(),
+            "Distance".to_owned(),
+            "Ratio".to_owned(),
+            csv : true
+        );
+
+        addplot!(
+            "RewardAspiration".to_owned(),
+            "Aspiration".to_owned(),
+            "Reward".to_owned(),
+            csv : true
+        );
+
+        addplot!(
+            "CoopFrequency".to_owned(),
+            "Time".to_owned(),
+            "Frequency".to_owned(),
+            csv : true
+        );
     }
 }
 

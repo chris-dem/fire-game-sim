@@ -1,16 +1,9 @@
 use crate::model::state::CellGrid;
 use krabmaga::bevy::prelude::Commands;
-// use krabmaga::engine::agent::Agent;
-// use krabmaga::engine::fields::dense_object_grid_2d::DenseGrid2D;
-// use krabmaga::engine::fields::field::Field;
-// use krabmaga::engine::schedule::Schedule;
-// use krabmaga::engine::state::State;
 use krabmaga::visualization::asset_handle_factory::AssetHandleFactoryResource;
 use krabmaga::visualization::fields::number_grid_2d::BatchRender;
-// use krabmaga::visualization::fields::object_grid_2d::RenderObjectGrid2D;
 use krabmaga::visualization::simulation_descriptor::SimulationDescriptor;
 use krabmaga::visualization::visualization_state::VisualizationState;
-// use krabmaga::visualization::visualization_state::VisualizationState;
 
 #[derive(Clone)]
 pub struct CellGridVis;

@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-use super::import::FixedOrRandom;
+// use super::import::FixedOrRandom;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct FireInput {
@@ -17,15 +17,15 @@ pub enum FrontierInput {
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum MovementInput {
-    ClosestDistance(FixedOrRandom<f32>),
+    ClosestDistance(Option<f32>),
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum AspirationInput {
-    LogAspiration(FixedOrRandom<f32>),
+    LogAspiration(Option<f32>),
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum RatioInput {
-    Root(FixedOrRandom<f32>),
+    Root(Option<f32>),
 }

@@ -2,11 +2,11 @@ use krabmaga::engine::location::Int2D;
 
 use super::{
     evacuee_mod::evacuee_cell::EvacueeCell,
-    misc::misc_func::Loc,
+    misc::misc_func::{Loc, Reset},
     state::{DEFAULT_HEIGHT, DEFAULT_WIDTH},
 };
 
-pub trait EscapeHandler<T> {
+pub trait EscapeHandler<T>: Reset {
     fn escaped(&mut self, evac: EvacueeCell, step: usize);
 
     fn get_escaped(&self) -> Vec<T>;
@@ -37,9 +37,15 @@ impl Default for TimeEscape {
     }
 }
 
+impl Reset for TimeEscape {
+    fn reset(&mut self) {
+        self.escaped_evac.clear();
+    }
+}
+
 impl EscapeHandler<EvacTime> for TimeEscape {
     fn escaped(&mut self, evac: EvacueeCell, step: usize) {
-        dbg!("Evacuee  escaped");
+        // dbg!("Evacuee  escaped");
         self.escaped_evac.push(EvacTime {
             loc: evac,
             time: step,

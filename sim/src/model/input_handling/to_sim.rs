@@ -1,15 +1,10 @@
-use std::collections::HashSet;
-
-use itertools::Itertools;
 use krabmaga::engine::fields::dense_number_grid_2d::DenseNumberGrid2D;
 use rand::prelude::*;
-use rand_chacha::ChaCha8Rng;
 
 use crate::model::{
     death::{Announcer, DeathHandler},
     escape::{EscapeHandler, EvacTime, TimeEscape},
     evacuee_mod::{
-        evacuee_cell::EvacueeCell,
         fire_influence::{
             dynamic_influence::{ClosestDistance, DynamicInfluence},
             fire_influence::FireInfluence,
@@ -42,7 +37,7 @@ pub trait ToSimulationStruct {
 impl ToSimulationStruct for FrontierInput {
     type T = Box<dyn FrontierStructure + Send>;
     type P = usize;
-    fn to_struct(&self, rng: &mut dyn RngCore, params: &Self::P) -> Self::T {
+    fn to_struct(&self, _rng: &mut dyn RngCore, params: &Self::P) -> Self::T {
         match self {
             FrontierInput::VecTree => Box::new(Frontier::new(*params)),
         }
@@ -56,7 +51,10 @@ impl ToSimulationStruct for MovementInput {
 
     fn to_struct(&self, rng: &mut dyn RngCore, _params: &Self::P) -> Self::T {
         Box::new(match self {
-            MovementInput::ClosestDistance(e) => ClosestDistance(e.get_val(rng)),
+            MovementInput::ClosestDistance(e) => {
+                let e = e.unwrap_or_else(|| rng.gen());
+                ClosestDistance(e)
+            }
         })
     }
 }
@@ -68,7 +66,10 @@ impl ToSimulationStruct for AspirationInput {
 
     fn to_struct(&self, rng: &mut dyn RngCore, _params: &Self::P) -> Self::T {
         Box::new(match self {
-            AspirationInput::LogAspiration(e) => LogAspManip(e.get_val(rng)),
+            AspirationInput::LogAspiration(e) => {
+                let e = e.unwrap_or_else(|| rng.gen());
+                LogAspManip(e)
+            }
         })
     }
 }
@@ -80,7 +81,10 @@ impl ToSimulationStruct for RatioInput {
 
     fn to_struct(&self, rng: &mut dyn RngCore, _params: &Self::P) -> Self::T {
         Box::new(match self {
-            RatioInput::Root(e) => RootDist(e.get_val(rng)),
+            RatioInput::Root(e) =>{
+                let e = e.unwrap_or_else(|| rng.gen());
+                RootDist(e)
+            },
         })
     }
 }
@@ -112,80 +116,15 @@ impl ToSimulationStruct for Setup {
 
     type P = (i32, i32); // w ,h
 
-    fn to_struct(&self, rng: &mut dyn RngCore, params: &Self::P) -> Self::T {
-        let mut map_rng: Box<dyn RngCore> = if let Some(seed) = self.map_seed {
-            Box::new(ChaCha8Rng::seed_from_u64(seed))
-        } else {
-            Box::new(thread_rng())
-        };
-        let (initial_grid, evac_locs) = match &self.initial_locs {
-            super::import::FixedOrRandom::Fixed((fire_locs, evac_locs)) => {
-                (fire_locs.clone(), evac_locs.clone())
-            }
-            super::import::FixedOrRandom::Random => {
-                let x = map_rng.gen_range(0..params.0);
-                let y = map_rng.gen_range(0..params.1);
-                let f_loc = (x, y);
-                let map_rng = &mut map_rng;
-                let mut h = HashSet::new();
-                h.insert(f_loc);
-                for _ in 0..self.evac_number {
-                    loop {
-                        let locs = (
-                            map_rng.gen_range(0..params.0),
-                            map_rng.gen_range(0..params.1),
-                        );
-                        if !h.contains(&locs) {
-                            h.insert(locs);
-                            break;
-                        }
-                    }
-                }
-                h.remove(&f_loc);
-                let mut evacs = h.into_iter().collect_vec();
-                evacs.sort();
-                (vec![f_loc], evacs)
-            }
-        };
-        let strats = match &self.initial_evac_strats {
-            super::import::FixedOrRandom::Fixed(v) => {
-                assert_eq!(evac_locs.len(), v.len());
-                v.clone()
-            }
-            super::import::FixedOrRandom::Random => (0..evac_locs.len())
-                .map(|_| {
-                    let s = map_rng.gen();
-                    s
-                })
-                .collect_vec(),
-        };
-        let probs = match &self.initial_evac_prob_dist {
-            super::import::FixedOrRandom::Fixed(p) => {
-                [*p].into_iter().cycle().take(evac_locs.len()).collect_vec()
-            }
-            super::import::FixedOrRandom::Random => {
-                (0..evac_locs.len()).map(|_| map_rng.gen()).collect_vec()
-            }
-        };
-        let initial_evac_grid = evac_locs
-            .into_iter()
-            .zip(strats.into_iter())
-            .zip(probs.into_iter())
-            .map(|(((x, y), strategy), pr_c)| EvacueeCell {
-                x,
-                y,
-                strategy,
-                pr_c,
-            })
-            .collect_vec();
-        let fire_spread = match self.fire_spread {
-            super::import::FixedOrRandom::Fixed(f) => f,
-            super::import::FixedOrRandom::Random => rng.gen(),
-        };
+    fn to_struct(&self, _rng: &mut dyn RngCore, _params: &Self::P) -> Self::T {
         InitialConfig {
-            initial_grid,
-            initial_evac_grid,
-            fire_spread,
+            initial_grid: self.initial_fire,
+            initial_evac_grid: self.initial_evac.clone(),
+            fire_spread: self.fire_spread,
+            map_seed: self.map_seed,
+            evac_num: self.evac_number,
+            lc : self.lc,
+            ld : self.ld,
         }
     }
 }
@@ -193,12 +132,15 @@ impl ToSimulationStruct for Setup {
 //===================== Other =====================
 
 impl ToSimulationStruct for EscapeInput {
-    type P = ();
     type T = Box<dyn EscapeHandler<EvacTime> + Send>;
+    type P = Loc;
 
-    fn to_struct(&self, _rng: &mut dyn RngCore, _params: &Self::P) -> Self::T {
+    fn to_struct(&self, _rng: &mut dyn RngCore, params: &Self::P) -> Self::T {
         let p = match self {
-            EscapeInput::TimeTracker => TimeEscape::default(),
+            EscapeInput::TimeTracker => TimeEscape {
+                exit: (*params).into(),
+                ..Default::default()
+            },
         };
         Box::new(p)
     }
@@ -224,7 +166,7 @@ impl ToSimulationStruct for StaticInput {
 
     fn to_struct(&self, rng: &mut dyn RngCore, params: &Self::P) -> Self::T {
         let p = match self {
-            StaticInput::ClosestToExit(f) => ExitInfluence::new(f.get_val(rng), params),
+            StaticInput::ClosestToExit(f) =>  ExitInfluence::new(f.unwrap_or_else(|| rng.gen()), params),
         };
         Box::new(p)
     }
@@ -237,7 +179,7 @@ impl ToSimulationStruct for ImportImproved {
 
     type P = String;
 
-    fn to_struct(&self, rng: &mut dyn RngCore, params: &Self::P) -> Self::T {
+    fn to_struct(&self, rng: &mut dyn RngCore, _params: &Self::P) -> Self::T {
         let (w, h) = self.dim;
         CellGrid {
             step: 0,
@@ -246,14 +188,14 @@ impl ToSimulationStruct for ImportImproved {
             grid: DenseNumberGrid2D::new(w as i32, h as i32),
             evac_grid: DenseNumberGrid2D::new(w as i32, h as i32),
             dim: self.dim,
+            param_seed : self.param_seed,
             initial_config: self.setup.to_struct(rng, &(w as i32, h as i32)),
             fire_influence: self.fire.to_struct(rng, &(w as usize)),
-            escape_handler: self.escape.to_struct(rng, &()),
+            escape_handler: self.escape.to_struct(rng, &Loc(w as i32 / 2, h as i32)),
             death_handler: self.death.to_struct(rng, &()),
             static_influence: self
                 .static_input
                 .to_struct(rng, &Loc(w as i32 / 2, h as i32)),
-            // file_handler: FileHandler::new(params),
         }
     }
 }

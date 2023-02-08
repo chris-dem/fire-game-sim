@@ -1,7 +1,6 @@
 // Global imports (needed for the simulation to run)
 use color_eyre::eyre::Result;
 mod model;
-// TODO intialise with seed
 
 #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
 use krabmaga::*;
@@ -16,9 +15,6 @@ use {
 #[cfg(any(feature = "visualization", feature = "visualization_wasm"))]
 mod visualization;
 
-pub static DISCRETIZATION: f32 = 10.0 / 1.5;
-pub static TOROIDAL: bool = true;
-
 // Main used when only the simulation should run, without any visualization.
 #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
 fn main() -> Result<()> {
@@ -26,7 +22,7 @@ fn main() -> Result<()> {
 
     use crate::model::input_handling::{import::ImportImproved, to_sim::ToSimulationStruct};
 
-    let file_name = "base_input.json";
+    let file_name = "fire_spread/f_s_test_val_0.1.json";
     let file = fs::File::open(format!("./inputs/tests/{}", file_name))?;
     let buf = BufReader::new(file);
     let init: ImportImproved = serde_json::from_reader(buf)?;
@@ -55,11 +51,12 @@ fn main() -> Result<()> {
         fire_mod::fire_cell::CellType,
         input_handling::{import::ImportImproved, to_sim::ToSimulationStruct},
     };
-    let file = fs::File::open("./inputs/tests/base_input.json")?;
+    let file_name = "base_input.json";
+    let file = fs::File::open(format!("./inputs/tests/{}", file_name))?;
     let buf = BufReader::new(file);
     let init: ImportImproved = serde_json::from_reader(buf)?;
     let mut rng = thread_rng();
-    let state = init.to_struct(&mut rng, &());
+    let state = init.to_struct(&mut rng, &file_name.to_owned());
 
     let mut app = Visualization::default()
         .with_window_dimensions(800., 600.)

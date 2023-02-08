@@ -4,30 +4,26 @@
     31
   ],
   "sim_type": "Total",
+  "param_seed" : 3,
   "setup": {
     "map_seed": 31,
-    "initial_locs": "Random",
-    "evac_number": 10,
-    "initial_evac_strats": "Random",
-    "initial_evac_prob_dist": "Random",
-    "fire_spread": {
-      "Fixed": 0.3
-    }
+    "evac_number": 25,
+    "fire_spread": 0.4
   },
   "fire": {
     "movement": {
-      "ClosestDistance": "Random"
+      "ClosestDistance": null
     },
     "aspiration": {
-      "LogAspiration": "Random"
+      "LogAspiration": null
     },
     "ratio": {
-      "Root": "Random"
+      "Root": null
     }
   },
   "escape": "TimeTracker",
   "death": "AnnounceInput",
   "static_input": {
-    "ClosestToExit": "Random"
+    "ClosestToExit": null 
   }
 }

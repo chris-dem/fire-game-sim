@@ -48,11 +48,27 @@ impl FireInfluence {
             * self.movement.get_dynamic_effect()
     }
 
+    #[cfg(any(feature = "visualization", feature = "visualization_wasm"))]
     pub fn calculcate_rewards(&self, n: usize, point: &Loc) -> RSTP {
         let r_t = self
             .ratio
             .calculate_ratio(self.fire_state.closest_point(point).unwrap_or(0.5)); // If there are no points we set it to its smallest possible value
                                                                                    // fh.curr_line.ratio.update(r_t);
+        strategy_rewards(n, r_t)
+    }
+
+    #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
+    pub fn calculcate_rewards(&self, n: usize, point: &Loc) -> RSTP {
+        use krabmaga::{plot, *};
+        let d = self.fire_state.closest_point(point).unwrap_or(0.5);
+        let r_t = self.ratio.calculate_ratio(d); // If there are no points we set it to its smallest possible value
+        plot!(
+            "RatioDistance".to_owned(),
+            "series".to_owned(),
+            d as f64,
+            r_t as f64,
+            csv : true
+        );
         strategy_rewards(n, r_t)
     }
 
@@ -66,7 +82,7 @@ impl FireInfluence {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test,not(any(feature = "visualization", feature = "visualization_wasm"))))]
 mod tests {
     use super::*;
     use approx::assert_relative_eq;

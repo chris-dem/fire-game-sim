@@ -1,0 +1,28 @@
+{
+    "dim": [
+        51,
+        51
+    ],
+    "param_seed": 10,
+    "sim_type": "Total",
+    "setup": {
+        "evac_number": 1300,
+        "fire_spread": 0.6
+    },
+    "fire": {
+        "movement": {
+            "ClosestDistance": null
+        },
+        "aspiration": {
+            "LogAspiration": null
+        },
+        "ratio": {
+            "Root": null
+        }
+    },
+    "escape": "TimeTracker",
+    "death": "AnnounceInput",
+    "static_input": {
+        "ClosestToExit": null
+    }
+}
