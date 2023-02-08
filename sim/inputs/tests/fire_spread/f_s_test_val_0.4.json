@@ -1,12 +1,12 @@
 {
     "dim": [
-        51,
-        51
+        21,
+        21
     ],
     "param_seed": 10,
     "sim_type": "Total",
     "setup": {
-        "evac_number": 1300,
+        "evac_number": 44,
         "fire_spread": 0.4
     },
     "fire": {

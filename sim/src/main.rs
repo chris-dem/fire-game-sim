@@ -1,6 +1,15 @@
 // Global imports (needed for the simulation to run)
 use color_eyre::eyre::Result;
 mod model;
+use std::{io::BufReader};
+use clap::Parser;
+
+use crate::model::{input_handling::{import::ImportImproved, to_sim::ToSimulationStruct}, arg_handling::MyArgs};
+
+//TODO LOGIC IS NOT RIGHT FIX THU
+
+
+
 
 #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
 use krabmaga::*;
@@ -18,12 +27,6 @@ mod visualization;
 // Main used when only the simulation should run, without any visualization.
 #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
 fn main() -> Result<()> {
-    use std::{io::BufReader, os};
-    use clap::Parser;
-
-    use crate::model::{input_handling::{import::ImportImproved, to_sim::ToSimulationStruct}, arg_handling::MyArgs};
-
-
     let args = MyArgs::parse();
 
     // let file_name = "fire_spread/f_s_test_val_0.1.json";
@@ -57,8 +60,13 @@ fn main() -> Result<()> {
         fire_mod::fire_cell::CellType,
         input_handling::{import::ImportImproved, to_sim::ToSimulationStruct},
     };
-    let file_name = "base_input.json";
-    let file = fs::File::open(format!("./inputs/tests/{}", file_name))?;
+    let args = MyArgs::parse();
+
+    let file_name = "fire_spread/f_s_test_val_0.1.json";
+    // let file_name = args.file_name;
+    
+    let f = dbg!(format!("./inputs/tests/{}", file_name));
+    let file = fs::File::open(f)?;
     let buf = BufReader::new(file);
     let init: ImportImproved = serde_json::from_reader(buf)?;
     let mut rng = thread_rng();
