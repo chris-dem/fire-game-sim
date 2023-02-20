@@ -12,6 +12,7 @@ pub trait EscapeHandler<T>: Reset {
     fn get_escaped(&self) -> Vec<T>;
 
     fn is_exit(&self, loc: &Loc) -> bool;
+
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -45,11 +46,10 @@ impl Reset for TimeEscape {
 
 impl EscapeHandler<EvacTime> for TimeEscape {
     fn escaped(&mut self, evac: EvacueeCell, step: usize) {
-        // dbg!("Evacuee  escaped");
         self.escaped_evac.push(EvacTime {
             loc: evac,
             time: step,
-        })
+        });
     }
 
     fn get_escaped(&self) -> Vec<EvacTime> {
@@ -61,4 +61,5 @@ impl EscapeHandler<EvacTime> for TimeEscape {
         // dbg!(r, *loc);
         r == *loc
     }
+
 }

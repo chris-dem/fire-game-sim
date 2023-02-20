@@ -37,8 +37,8 @@ fn main() -> Result<()> {
     let init: ImportImproved = serde_json::from_reader(buf)?;
     let mut rng = thread_rng();
     let state = init.to_struct(&mut rng, &file_name.to_owned());
-
-    let _ = simulate!(state, 500, 10);
+    dbg!("q");
+    let _ = simulate!(state, 750, 30);
     Ok(())
 }
 

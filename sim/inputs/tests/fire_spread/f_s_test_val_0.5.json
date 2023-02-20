@@ -3,11 +3,13 @@
         21,
         21
     ],
-    "param_seed": 10,
+    "param_seed": 20,
     "sim_type": "Total",
     "setup": {
-        "evac_number": 44,
-        "fire_spread": 0.5
+        "evac_number": 37,
+        "fire_spread": 0.5,
+        "lc": 0.5,
+        "ld": 0.5
     },
     "fire": {
         "movement": {
@@ -17,7 +19,10 @@
             "LogAspiration": null
         },
         "ratio": {
-            "Root": null
+            "Log": 1.0
+        },
+        "reward_game": {
+            "InvLogRoot": 1.0
         }
     },
     "escape": "TimeTracker",

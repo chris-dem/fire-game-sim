@@ -10,7 +10,7 @@ pub struct LogAspManip(pub f32);
 
 impl Default for LogAspManip {
     fn default() -> Self {
-        Self(2.)
+        Self(1.)
     }
 }
 

@@ -8,6 +8,7 @@ pub struct FireInput {
     pub movement: MovementInput,
     pub aspiration: AspirationInput,
     pub ratio: RatioInput,
+    pub reward_game: RewardGameInput,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -28,4 +29,11 @@ pub enum AspirationInput {
 #[derive(Debug, Clone, Deserialize)]
 pub enum RatioInput {
     Root(Option<f32>),
+    Log(Option<f32>),
+    Id(Option<f32>),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub enum RewardGameInput {
+    InvLogRoot(Option<f32>),
 }

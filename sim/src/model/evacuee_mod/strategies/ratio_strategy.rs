@@ -19,3 +19,34 @@ impl RatioStrategy for RootDist {
         fire_d.sqrt() * self.0
     }
 }
+
+pub struct LogDist(pub f32);
+
+impl Default for LogDist {
+    fn default() -> Self {
+        Self(1.)
+    }
+}
+
+
+impl RatioStrategy for LogDist {
+    fn calculate_ratio(&self,fire_d:f32) -> f32 {
+        fire_d.ln_1p() * self.0
+    }
+}
+
+pub struct IDdist(pub f32);
+
+impl Default for IDdist {
+    fn default() -> Self {
+        Self(1.)
+    }
+}
+
+
+impl RatioStrategy for IDdist {
+    fn calculate_ratio(&self,fire_d:f32) -> f32 {
+        fire_d * self.0
+    }
+}
+

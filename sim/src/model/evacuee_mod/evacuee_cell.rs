@@ -7,8 +7,9 @@ pub struct EvacueeCell {
     pub strategy: Strategy,
     pub x: i32,
     pub y: i32,
-    /// probabillity of adopting strategy
+    /// probabillity of adopting strategy comp
     pub pr_c: f32,
+    pub pr_d: f32,
 }
 
 impl PartialEq for EvacueeCell {

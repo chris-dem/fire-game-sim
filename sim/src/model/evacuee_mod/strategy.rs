@@ -1,3 +1,4 @@
+use krabmaga::log;
 use rand::{seq::SliceRandom, RngCore};
 use rand_derive2::RandGen;
 use serde::Deserialize;
@@ -15,8 +16,8 @@ pub enum RuleCase {
 pub type RSTP = (f32, f32, f32, f32);
 
 #[inline]
-pub fn strategy_rewards(n: usize, r_t: f32) -> RSTP {
-    (1. / n as f32, 0., (1. - r_t / n as f32), -r_t / n as f32)
+pub fn strategy_rewards(n: usize, r_t: f32, b : f32) -> RSTP {
+  (b / n as f32, 0., b * (1. - r_t / n as f32), - b * r_t / n as f32)
 }
 
 #[inline]
@@ -30,6 +31,7 @@ pub fn s_x(rewards: RSTP, a_x: f32, reward: f32) -> f32 {
     .into_iter()
     .max_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
     .unwrap();
+    // dbg!(reward, a_x);
     (reward - a_x) / mx
 }
 
@@ -161,6 +163,7 @@ mod tests {
                         y: 0,
                         strategy: Strategy::Cooperative,
                         pr_c: 0.,
+                        pr_d: 0.,
                     },
                 ),
                 (
@@ -170,6 +173,7 @@ mod tests {
                         y: 0,
                         strategy: Strategy::Cooperative,
                         pr_c: 0.,
+                        pr_d: 0.,
                     },
                 ),
             ];
@@ -194,6 +198,7 @@ mod tests {
                         y: 0,
                         strategy: Strategy::Competitive,
                         pr_c: 0.,
+                        pr_d: 0.,
                     },
                 ),
                 (
@@ -203,6 +208,7 @@ mod tests {
                         y: 0,
                         strategy: Strategy::Cooperative,
                         pr_c: 0.,
+                        pr_d: 0.,
                     },
                 ),
             ];
@@ -227,6 +233,7 @@ mod tests {
                         y: 0,
                         strategy: Strategy::Competitive,
                         pr_c: 0.,
+                        pr_d: 0.,
                     },
                 ),
                 (
@@ -236,6 +243,7 @@ mod tests {
                         y: 0,
                         strategy: Strategy::Competitive,
                         pr_c: 0.,
+                        pr_d: 0.,
                     },
                 ),
             ];

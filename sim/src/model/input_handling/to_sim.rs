@@ -13,7 +13,7 @@ use crate::model::{
         static_influence::{ExitInfluence, StaticInfluence},
         strategies::{
             aspiration_strategy::{AspirationStrategy, LogAspManip},
-            ratio_strategy::{RatioStrategy, RootDist},
+            ratio_strategy::{RatioStrategy, RootDist, LogDist, IDdist}, reward_strategy::{RewardStrategy, InverseLogRoot},
         },
     },
     // file_handling::file_handler::FileHandler,
@@ -80,12 +80,35 @@ impl ToSimulationStruct for RatioInput {
     type P = ();
 
     fn to_struct(&self, rng: &mut dyn RngCore, _params: &Self::P) -> Self::T {
-        Box::new(match self {
+        match self {
             RatioInput::Root(e) =>{
                 let e = e.unwrap_or_else(|| rng.gen());
-                RootDist(e)
+                Box::new(RootDist(e))
             },
-        })
+            RatioInput::Log(e) => {
+                let e = e.unwrap_or_else(|| rng.gen());
+                Box::new(LogDist(e))
+            },
+            RatioInput::Id(e) => {
+                let e = e.unwrap_or_else(|| rng.gen());
+                Box::new(IDdist(e))
+            }
+        }
+    }
+}
+
+impl ToSimulationStruct for RewardGameInput {
+    type T = Box<dyn RewardStrategy + Send>;
+
+    type P = f32;
+
+    fn to_struct(&self, rng: &mut dyn RngCore, params: &Self::P) -> Self::T {
+        match self {
+            Self::InvLogRoot(e) =>{
+                let e = e.unwrap_or_else(|| rng.gen());
+                Box::new(InverseLogRoot(e,*params))
+            },
+        }
     }
 }
 
@@ -105,6 +128,7 @@ impl ToSimulationStruct for FireInput {
             aspiration: self.aspiration.to_struct(rng, &()),
             movement: self.movement.to_struct(rng, &()),
             ratio: self.ratio.to_struct(rng, &()),
+            reward_game : self.reward_game.to_struct(rng, &(*params as f32 / 2.)),
         }
     }
 }

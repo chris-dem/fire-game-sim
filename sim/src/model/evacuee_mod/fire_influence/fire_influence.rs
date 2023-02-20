@@ -2,7 +2,7 @@ use crate::model::{
     evacuee_mod::{
         strategies::{
             aspiration_strategy::{AspirationStrategy, LogAspManip},
-            ratio_strategy::{RatioStrategy, RootDist},
+            ratio_strategy::{RatioStrategy, RootDist, IDdist}, reward_strategy::{RewardStrategy, InverseLogRoot},
         },
         strategy::{strategy_rewards, RSTP},
     },
@@ -26,6 +26,8 @@ pub struct FireInfluence {
     pub aspiration: Box<dyn AspirationStrategy + Send>,
     /// Ratio function used
     pub ratio: Box<dyn RatioStrategy + Send>,
+    /// Reward game function used
+    pub reward_game: Box<dyn RewardStrategy + Send>,
 }
 
 
@@ -42,7 +44,8 @@ impl Default for FireInfluence {
             fire_area: 0,
             movement: Box::new(ClosestDistance::default()),
             aspiration: Box::new(LogAspManip::default()),
-            ratio: Box::new(RootDist::default()),
+            ratio: Box::new(IDdist::default()),
+            reward_game: Box::new(InverseLogRoot::default()),
             fire_state: Box::new(Frontier::default()),
         }
     }
@@ -52,25 +55,25 @@ impl FireInfluence {
     pub fn get_movement_influence(&self, loc: &Loc) -> f32 {
         self.movement
             .dynamic_influence(&(*loc).into(), self.fire_state.as_ref())
-            .sqrt()
             * self.movement.get_dynamic_effect()
     }
 
     #[cfg(any(feature = "visualization", feature = "visualization_wasm"))]
-    pub fn calculcate_rewards(&self, n: usize, point: &Loc) -> RSTP {
+    pub fn calculcate_rewards(&self, n: usize, point: &Loc, reward_b : f32) -> RSTP {
+        let d = self.fire_state.closest_point(point).unwrap_or(0.5).sqrt();
         let r_t = self
             .ratio
             .calculate_ratio(self.fire_state.closest_point(point).unwrap_or(0.5)); // If there are no points we set it to its smallest possible value
                                                                                    // fh.curr_line.ratio.update(r_t);
-        strategy_rewards(n, r_t)
+        strategy_rewards(n, r_t, reward_b)
     }
 
     #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
-    pub fn calculcate_rewards(&self, n: usize, point: &Loc) -> RSTP {
+    pub fn calculcate_rewards(&self, n: usize, point: &Loc, reward_b : f32) -> RSTP {
         use krabmaga::{plot, *};
 
         use crate::model::misc::misc_func::round;
-        let d = self.fire_state.closest_point(point).unwrap_or(0.5);
+        let d = self.fire_state.closest_point(point).unwrap_or(0.5).sqrt();
         let r_t = self.ratio.calculate_ratio(d); // If there are no points we set it to its smallest possible value
         plot!(
             "RatioDistance".to_owned(),
@@ -79,7 +82,7 @@ impl FireInfluence {
             round(r_t as f64,3),
             csv : true
         );
-        strategy_rewards(n, r_t)
+        strategy_rewards(n, r_t, reward_b)
     }
 
     pub fn calculate_aspiration(&self) -> f32 {
@@ -99,9 +102,9 @@ mod tests {
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
 
-    use crate::model::evacuee_mod::fire_influence::{
+    use crate::model::evacuee_mod::{fire_influence::{
         fire_influence::FireInfluence, frontier::MockFrontierStructure,
-    };
+    }, strategies::reward_strategy::MockRewardStrategy};
     use mockall::predicate;
 
     use crate::model::evacuee_mod::strategies::{
@@ -121,6 +124,7 @@ mod tests {
             .with(predicate::eq(0.5))
             .returning(|c| c);
 
+
         let fire = FireInfluence {
             fire_state: Box::new(frontier),
             ratio: Box::new(ratio_un),
@@ -130,7 +134,7 @@ mod tests {
         assert_relative_eq!(fire.calculate_aspiration(), 0.);
         assert_relative_eq!(fire.get_movement_influence(&Loc(1, 1)), 0.5);
         assert_eq!(
-            fire.calculcate_rewards(3, &Loc(1, 1)),
+            fire.calculcate_rewards(3, &Loc(1, 1), 1.),
             (1. / 3. as f32, 0. as f32, (1. - 0.5 / 3.), -0.5 / 3. as f32)
         );
     }
@@ -154,6 +158,7 @@ mod tests {
 
         ratio_st.expect_calculate_ratio().returning(|c| c.exp());
 
+
         let mut fire = FireInfluence {
             fire_state: Box::new(front_st),
             aspiration: Box::new(asp_st),
@@ -166,7 +171,7 @@ mod tests {
         assert_relative_eq!(fire.calculate_aspiration(), 10.);
         assert_relative_eq!(fire.get_movement_influence(&Loc(1, 1)), 1.);
         assert_eq!(
-            fire.calculcate_rewards(3, &Loc(1, 1)),
+            fire.calculcate_rewards(3, &Loc(1, 1),1.),
             (
                 1. / 3. as f32,
                 0. as f32,
@@ -179,6 +184,7 @@ mod tests {
     #[test]
     fn mock_trivial() {
         let mut rng = ChaCha8Rng::seed_from_u64(2);
+        
         let mut fire = FireInfluence::default();
         let rn = rng.gen_range(5..=10);
 
@@ -200,7 +206,7 @@ mod tests {
         assert_relative_eq!(fire.get_movement_influence(&Loc(3, 9)), 0.5);
         assert_relative_eq!(fire.get_movement_influence(&Loc(7, 10)), 10.);
         assert_eq!(
-            fire.calculcate_rewards(2, &Loc(6, 6)),
+            fire.calculcate_rewards(2, &Loc(6, 6),1.),
             (1. / 2., 0., (1. - 3.0 / 2.), -3. / 2.)
         );
     }

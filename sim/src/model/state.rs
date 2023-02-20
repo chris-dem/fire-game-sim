@@ -96,7 +96,6 @@ pub fn within_bounds(val: i32, limit: i32) -> bool {
 impl CellGrid {
     /// Apply InitialConfiguration to the grid
     pub fn set_intial(&mut self, rng: &mut dyn RngCore) {
-        // TODO fix
         let mut seed_rng = None;
         let rng = self.initial_config.map_seed.map_or(rng, |c| {
             seed_rng = Some(rand_chacha::ChaCha8Rng::seed_from_u64(c));
@@ -148,6 +147,7 @@ impl CellGrid {
                             x: loc.0,
                             y: loc.1,
                             pr_c: prob,
+                            pr_d: prob,
                         }
                     })
                     .collect_vec()
@@ -177,7 +177,7 @@ impl CellGrid {
                     .evac_grid
                     .get_value(&loc.into())
                     .is_none()
-                && self.grid.get_value(&loc.into()).unwrap() == CellType::Empty)
+                && self.grid.get_value_unbuffered(&loc.into()).unwrap() == CellType::Empty)
             // if the cell is empty
             // if there are no evacuees
             {
@@ -214,6 +214,7 @@ impl CellGrid {
                 self.static_influence.as_ref(),
                 &self.fire_influence,
             );
+            // dbg!(&weights);
             let dist = WeightedIndex::new(weights).unwrap();
             let opted_dist = empty_cells[dist.sample(rng)];
             if self.escape_handler.is_exit(&opted_dist) {
@@ -298,7 +299,19 @@ impl CellGrid {
                 ..competing[0]
             }];
         }
-
+        // dbg!(dist, &competing, self.grid.get_value(loc))
+        let dist_to_exit = self.static_influence.static_influence(&dist.into());
+        let reward_b = self.fire_influence.reward_game.calculate_reward(dist_to_exit);
+        #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
+        {
+            plot!(
+                "RewardGameDistance".to_owned(),
+                "series".to_owned(),
+                round(dist_to_exit as f64,3) ,
+                round(reward_b as f64,3),
+                csv:true
+            );
+        }
         // Could be optimised with no need to return new location
         let game = competing[0].strategy.game_rules(
             // this section returns a shuffled list, the first is the user who will occupy the square where the rest will wait
@@ -308,7 +321,6 @@ impl CellGrid {
                 .map(|e| e.strategy)
                 .collect::<Vec<_>>(),
         );
-
         let n = competing.len();
         let competing: Vec<_> = competing
             .into_iter()
@@ -317,6 +329,7 @@ impl CellGrid {
                     self.fire_influence.calculcate_rewards(
                         n,
                         &Loc(e.x, e.y),
+                        dist_to_exit
                     ),
                     e,
                 )
@@ -339,7 +352,7 @@ impl CellGrid {
                 .collect_vec()
         };
         lis.into_iter()
-            .map(|(c, (stim, evac))| {
+            .map(|(c, (stim, mut evac))| {
                 // self.file_handler.curr_line.reward.update(stim);
                 #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
                 {
@@ -351,17 +364,10 @@ impl CellGrid {
                         csv:true
                     );
                 }
-                let pr_prime = evac_agent.calculate_strategies(&evac, stim);
-                let mut strategy = evac.strategy;
-                if rng.gen_bool(pr_prime as f64) {
-                    strategy = strategy.inverse();
-                }
-                EvacueeCell {
-                    x: c.0,
-                    y: c.1,
-                    strategy,
-                    pr_c: pr_prime,
-                }
+                evac_agent.calculate_strategies(&mut evac,rng, stim);
+                evac.x = c.0;
+                evac.y = c.1;
+                evac
             })
             .collect()
     }
@@ -501,16 +507,32 @@ impl State for CellGrid {
         let f = RefCell::new(vec![]);
 
         self.evac_grid
-            .iter_values_unbuffered(|_, EvacueeCell { strategy, .. }| {
-                f.borrow_mut().push(*strategy);
+            .iter_values_unbuffered(|_, e| {
+                f.borrow_mut().push(*e);
             });
         let f = f.take();
         let total_num = f.len();
         let coops = f
-            .into_iter()
-            .filter(|s| *s == Strategy::Cooperative)
+            .iter()
+            .filter(|s| s.strategy == Strategy::Cooperative)
             .count();
+        let n = total_num as f32;
+        let sums = f.into_iter().fold((0.,0.,0.,0.),|(c,cq,d,dq) , EvacueeCell { pr_c, pr_d ,..}| {
+            (
+                c + pr_c,
+                cq + pr_c.powi(2),
+                d + pr_d,
+                dq + pr_d.powi(2)
+            )
+        });
         if total_num != 0 {
+            let avgs = 
+            (
+                sums.0 / n,
+                sums.1 / n,
+                sums.2 / n,
+                sums.3 / n,
+            );
             plot!(
                 "CoopFrequency".to_owned(),
                 "series".to_owned(),
@@ -518,15 +540,48 @@ impl State for CellGrid {
                 round(coops as f64 / total_num as f64,3),
                 csv : true
             );
+            plot!(
+                "AverageLearningCoop".to_owned(),
+                "series".to_owned(),
+                schedule.time as f64,
+                avgs.0 as f64,
+                csv : true
+            );
+
+            plot!(
+                "AverageLearningComp".to_owned(),
+                "series".to_owned(),
+                schedule.time as f64,
+                (avgs.0 - avgs.1.powi(2)).sqrt() as f64,
+                csv : true
+            );
+
+            plot!(
+                "StdLearningCoop".to_owned(),
+                "series".to_owned(),
+                schedule.time as f64,
+                avgs.2 as f64,
+                csv : true
+            );
+
+            plot!(
+                "StdLearningComp".to_owned(),
+                "series".to_owned(),
+                schedule.time as f64,
+                (avgs.3 - avgs.2.powi(2)).sqrt() as f64,
+                csv : true
+            );
         }
     }
 
-    #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
-    fn end_condition(&mut self, _schedule: &mut krabmaga::engine::schedule::Schedule) -> bool {
-        let cnt = RefCell::new(0usize);
-        self.evac_grid.iter_values(|_,_| *cnt.borrow_mut() += 1);
-        self.fire_influence.fire_area == (self.dim.0 * self.dim.1) as usize || cnt.take() == 0
-    }
+    // #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
+    // fn end_condition(&mut self, _schedule: &mut krabmaga::engine::schedule::Schedule) -> bool {
+    //     let lef = self.fire_influence.fire_area == (self.dim.0 * self.dim.1) as usize ;
+    //     let rhf = self.initial_config.evac_num == self.death_handler.get_dead() + self.escape_handler.get_escaped().len();
+    //     let res = lef || rhf; 
+    //     log!(LogType::Critical, format!("{res} left {lef} right {}",self.death_handler.get_dead()),true);
+    //     res
+    // }
 
     // Determine fire_out
     fn reset(&mut self) {
@@ -554,10 +609,10 @@ impl State for CellGrid {
             spread: self.initial_config.fire_spread.unwrap_or_else(|| rng.gen()),
             id: 1,
         };
-        let evac_agent = EvacueeAgent {
+        let evac_agent = EvacueeAgent { //TODO
             id: 2,
-            lc: self.initial_config.lc.unwrap_or_else(|| rng.gen()),
-            ld: self.initial_config.ld.unwrap_or_else(|| rng.gen()),
+            lc: 0.5,
+            ld: 0.5,
         };
 
         // Update on the non visual feature does not copy between the state
@@ -582,16 +637,18 @@ impl State for CellGrid {
         });
         self.reset();
         self.set_intial(&mut rng);
+        let cnt = RefCell::new(0usize);
+        self.evac_grid.iter_values(|_,_| *cnt.borrow_mut() += 1);
         // TODO Param seed implementation
         // Only thing really left to do is start generating resultsz\
         let fire_rules = FireRules {
             spread: self.initial_config.fire_spread.unwrap_or_else(|| rng.gen()),
             id: 1,
         };
-        let evac_agent = EvacueeAgent {
+        let agent = EvacueeAgent {
             id: 2,
-            lc: self.initial_config.lc.unwrap_or_else(|| rng.gen()),
-            ld: self.initial_config.ld.unwrap_or_else(|| rng.gen()),
+            lc: 0.5, 
+            ld: 0.5, 
         };
 
         // Update on the non visual feature does not copy between the state
@@ -599,7 +656,7 @@ impl State for CellGrid {
         // self.grid.update();
         // self.evac_grid.update();
         schedule.schedule_repeating(Box::new(fire_rules), 0., 0);
-        schedule.schedule_repeating(Box::new(evac_agent), 0., 1);
+        schedule.schedule_repeating(Box::new(agent), 0., 1);
 
         // ================ PLOTS ================
 
@@ -642,6 +699,41 @@ impl State for CellGrid {
             "CoopFrequency".to_owned(),
             "Time".to_owned(),
             "Frequency".to_owned(),
+            csv : true
+        );
+        
+        addplot!(
+            "AverageLearningCoop".to_owned(),
+            "Time".to_owned(),
+            "Avg".to_owned(),
+            csv : true
+        );
+
+        addplot!(
+            "AverageLearningComp".to_owned(),
+            "Time".to_owned(),
+            "Avg".to_owned(),
+            csv : true
+        );
+
+        addplot!(
+            "StdLearningCoop".to_owned(),
+            "Time".to_owned(),
+            "Std".to_owned(),
+            csv : true
+        );
+
+        addplot!(
+            "StdLearningComp".to_owned(),
+            "Time".to_owned(),
+            "Std".to_owned(),
+            csv : true
+        );
+
+        addplot!(
+            "RewardGameDistance".to_owned(),
+            "Distance".to_owned(),
+            "RewardGame".to_owned(),
             csv : true
         );
     }

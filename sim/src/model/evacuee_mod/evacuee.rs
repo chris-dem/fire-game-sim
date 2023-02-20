@@ -1,3 +1,4 @@
+
 use super::fire_influence::fire_influence::FireInfluence;
 use super::strategy::Strategy;
 use super::{evacuee_cell::EvacueeCell, static_influence::StaticInfluence};
@@ -6,7 +7,8 @@ use crate::model::state::CellGrid;
 use itertools::Itertools;
 use krabmaga::engine::agent::Agent;
 use krabmaga::engine::location::Int2D;
-use krabmaga::rand as krand;
+use krabmaga::{rand as krand, Rng};
+use krand::RngCore;
 
 // Cannot be implemented as an agent, due to possible collisions in cells
 // Must consider the homoegenuious interaction between neighbouring cells
@@ -45,21 +47,36 @@ impl EvacueeAgent {
         all.into_iter().map(|el| el / s).collect_vec()
     }
 
+
+
     pub fn calculate_strategies(
         &self,
-        EvacueeCell { pr_c, strategy, .. }: &EvacueeCell,
+        evac : &mut EvacueeCell,
+        rng : &mut dyn RngCore,
         stim: f32,
-    ) -> f32 {
-        let con = if *strategy == Strategy::Cooperative {
-            self.lc
-        } else {
-            self.ld
-        };
-        if stim.is_sign_positive() {
-            pr_c + (1. - pr_c) * con * stim
-        } else {
-            (1. + con * stim) * pr_c
+    ){
+        match evac.strategy {
+            Strategy::Competitive => { // ADOPT FOR COOP
+                evac.pr_d = calc_prob(evac.pr_d, self.ld, stim);
+                if !rng.gen_bool(evac.pr_d as f64) {
+                    evac.strategy = Strategy::Cooperative;
+                }
+            },
+            Strategy::Cooperative => { // ADOPT FOR COMP
+                evac.pr_c = calc_prob(evac.pr_c, self.lc, stim);
+                if !rng.gen_bool(evac.pr_c as f64) {
+                    evac.strategy = Strategy::Competitive;
+                }
+            }, 
         }
+    }
+}
+
+fn calc_prob(prob : f32, learning : f32, stim : f32) -> f32 {
+    if stim.is_sign_positive() {
+        prob + (1. - prob) * learning * stim
+    } else {
+        prob * (1. + learning * stim)
     }
 }
 
