@@ -43,6 +43,7 @@ impl EvacueeAgent {
                 (-s + d).exp()
             })
             .collect_vec();
+        // dbg!(fire_infl.)
         let s: f32 = all.iter().sum();
         all.into_iter().map(|el| el / s).collect_vec()
     }
@@ -62,7 +63,7 @@ impl EvacueeAgent {
                     evac.strategy = Strategy::Cooperative;
                 }
             },
-            Strategy::Cooperative => { // ADOPT FOR COMP
+            Strategy::Cooperative => { // ADOPT FOR COOP
                 evac.pr_c = calc_prob(evac.pr_c, self.lc, stim);
                 if !rng.gen_bool(evac.pr_c as f64) {
                     evac.strategy = Strategy::Competitive;

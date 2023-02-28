@@ -12,8 +12,8 @@ use crate::model::{
         },
         static_influence::{ExitInfluence, StaticInfluence},
         strategies::{
-            aspiration_strategy::{AspirationStrategy, LogAspManip},
-            ratio_strategy::{RatioStrategy, RootDist, LogDist, IDdist}, reward_strategy::{RewardStrategy, InverseLogRoot},
+            aspiration_strategy::{AspirationStrategy, LogAspManip, RootAsp},
+            ratio_strategy::{RatioStrategy, RootDist, LogDist, IDdist}, reward_strategy::{RewardStrategy, InverseLogRoot, RootReward},
         },
     },
     // file_handling::file_handler::FileHandler,
@@ -65,12 +65,16 @@ impl ToSimulationStruct for AspirationInput {
     type P = ();
 
     fn to_struct(&self, rng: &mut dyn RngCore, _params: &Self::P) -> Self::T {
-        Box::new(match self {
+        match self {
             AspirationInput::LogAspiration(e) => {
                 let e = e.unwrap_or_else(|| rng.gen());
-                LogAspManip(e)
+                Box::new(LogAspManip(e))
             }
-        })
+            AspirationInput::RootAspiration(e) => {
+                let e = e.unwrap_or_else(|| rng.gen());
+                Box::new(RootAsp(e))
+            }
+        }
     }
 }
 
@@ -100,13 +104,18 @@ impl ToSimulationStruct for RatioInput {
 impl ToSimulationStruct for RewardGameInput {
     type T = Box<dyn RewardStrategy + Send>;
 
-    type P = f32;
+    type P = (f32,f32);
 
     fn to_struct(&self, rng: &mut dyn RngCore, params: &Self::P) -> Self::T {
         match self {
             Self::InvLogRoot(e) =>{
                 let e = e.unwrap_or_else(|| rng.gen());
-                Box::new(InverseLogRoot(e,*params))
+                Box::new(InverseLogRoot(e,10.0f32.ln_1p()))
+            },
+            Self::RewardRoot(e) =>{
+                let e = e.unwrap_or_else(|| rng.gen());
+                let max_dist = (params.0.powi(2) +  params.1.powi(2)).sqrt();
+                Box::new(RootReward(e,max_dist))
             },
         }
     }
@@ -115,7 +124,7 @@ impl ToSimulationStruct for RewardGameInput {
 impl ToSimulationStruct for FireInput {
     type T = FireInfluence;
 
-    type P = usize;
+    type P = (usize,usize);
 
     fn to_struct(&self, rng: &mut dyn RngCore, params: &Self::P) -> Self::T {
         FireInfluence {
@@ -123,12 +132,12 @@ impl ToSimulationStruct for FireInput {
             fire_state: self
                 .frontier
                 .clone()
-                .map(|e| e.to_struct(rng, params))
-                .unwrap_or_else(|| Box::new(Frontier::new(*params))),
+                .map(|e| e.to_struct(rng, &params.0))
+                .unwrap_or_else(|| Box::new(Frontier::new(params.0))),
             aspiration: self.aspiration.to_struct(rng, &()),
             movement: self.movement.to_struct(rng, &()),
             ratio: self.ratio.to_struct(rng, &()),
-            reward_game : self.reward_game.to_struct(rng, &(*params as f32 / 2.)),
+            reward_game : self.reward_game.to_struct(rng, &(params.0 as f32, params.1 as f32)),
         }
     }
 }
@@ -214,12 +223,13 @@ impl ToSimulationStruct for ImportImproved {
             dim: self.dim,
             param_seed : self.param_seed,
             initial_config: self.setup.to_struct(rng, &(w as i32, h as i32)),
-            fire_influence: self.fire.to_struct(rng, &(w as usize)),
+            fire_influence: self.fire.to_struct(rng, &(w as usize, h as usize)),
             escape_handler: self.escape.to_struct(rng, &Loc(w as i32 / 2, h as i32)),
             death_handler: self.death.to_struct(rng, &()),
             static_influence: self
                 .static_input
                 .to_struct(rng, &Loc(w as i32 / 2, h as i32)),
+            ..Default::default()
         }
     }
 }

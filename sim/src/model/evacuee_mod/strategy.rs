@@ -6,7 +6,7 @@ use std::{borrow::BorrowMut, cmp::Ordering, fmt};
 
 use super::evacuee_cell::EvacueeCell;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum RuleCase {
     AllCoop,
     AllButOneCoop,
@@ -71,7 +71,14 @@ pub fn rules(
         }
         RuleCase::Argument => Err(competing
             .into_iter()
-            .map(|(w, el)| (s_x(w, asp, w.3), el))
+            .map(|(w, el)| {
+                let retw = if el.strategy == Strategy::Competitive {
+                    w.3
+                }else {
+                    0.
+                };
+                (s_x(w, asp, retw), el)
+            })
             .collect()),
     }
 }

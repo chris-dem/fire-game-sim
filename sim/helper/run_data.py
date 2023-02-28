@@ -8,7 +8,7 @@ inps_dir = os.path.join(os.path.dirname(__file__),"..", "inputs","tests")
 filt = sys.argv[1:]
 clear_dir = os.path.realpath(os.path.join(exec_cmd, "helper", "clear_out.py"))
 output_cwd = os.path.join(exec_cmd, "output")
-
+print("here")
 os.system(f"cd {os.path.abspath(exec_cmd)}")
 for file_test in filt[0:]:
    file_p = os.path.abspath(os.path.join(inps_dir, "fire_spread"))

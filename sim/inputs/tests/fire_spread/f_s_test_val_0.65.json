@@ -13,21 +13,21 @@
     },
     "fire": {
         "movement": {
-            "ClosestDistance": null
+            "ClosestDistance": 1.0309844516880333
         },
         "aspiration": {
-            "LogAspiration": null
+            "LogAspiration": 0.4159034146861191
         },
         "ratio": {
-            "Log": 1.0
+            "Log": 0.6634011009326777
         },
         "reward_game": {
-            "InvLogRoot": 1.0
+            "RewardRoot": 0.913287201523695
         }
     },
     "escape": "TimeTracker",
     "death": "AnnounceInput",
     "static_input": {
-        "ClosestToExit": null
+        "ClosestToExit": 1.01444259246834
     }
 }

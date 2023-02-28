@@ -24,6 +24,7 @@ pub enum MovementInput {
 #[derive(Debug, Clone, Deserialize)]
 pub enum AspirationInput {
     LogAspiration(Option<f32>),
+    RootAspiration(Option<f32>),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -36,4 +37,5 @@ pub enum RatioInput {
 #[derive(Debug, Clone, Deserialize)]
 pub enum RewardGameInput {
     InvLogRoot(Option<f32>),
+    RewardRoot(Option<f32>),
 }

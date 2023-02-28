@@ -10,6 +10,7 @@ pub trait EscapeHandler<T>: Reset {
     fn escaped(&mut self, evac: EvacueeCell, step: usize);
 
     fn get_escaped(&self) -> Vec<T>;
+    fn get_escaped_number(&self) -> usize;
 
     fn is_exit(&self, loc: &Loc) -> bool;
 
@@ -60,6 +61,10 @@ impl EscapeHandler<EvacTime> for TimeEscape {
         let r: Loc = self.exit.into();
         // dbg!(r, *loc);
         r == *loc
+    }
+
+    fn get_escaped_number(&self) -> usize {
+        self.escaped_evac.len()
     }
 
 }

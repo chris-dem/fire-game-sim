@@ -37,11 +37,12 @@ impl ExitInfluence {
 impl Default for ExitInfluence {
     fn default() -> Self {
         Self {
-            s_effect: 0.5,
+            s_effect: 1.5,
             end_pos: Loc(DEFAULT_WIDTH as i32 / 2, DEFAULT_HEIGHT as i32),
         }
     }
 }
+
 
 impl StaticInfluence for ExitInfluence {
     fn static_influence(&self, pos: &Int2D) -> f32 {
