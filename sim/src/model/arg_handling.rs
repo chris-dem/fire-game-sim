@@ -12,7 +12,7 @@ pub struct MyArgs {
 }
 
 
-// #[cfg(feature = "bayesian")]
+// #[cfg(feature = "search")]
 // #[derive(Debug, Parser)]
 // #[command(author, version, about, long_about = None)]
 // pub struct BayesianArgument {
@@ -50,4 +50,12 @@ pub struct MyArgs {
 //         && self.static_infl
 //         && self.dynamic_infl
 //     }
+// }
+
+
+// #[cfg(feature = "search")]
+// #[derive(Parser, Debug)]
+// #[command(author, version, about, long_about = None)]
+// pub struct ArgSearch {
+//     /// enable lc
 // }

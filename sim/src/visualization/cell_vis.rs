@@ -5,6 +5,8 @@ use krabmaga::visualization::fields::number_grid_2d::BatchRender;
 use krabmaga::visualization::simulation_descriptor::SimulationDescriptor;
 use krabmaga::visualization::visualization_state::VisualizationState;
 
+use super::exit_agent::{ExitVis, ExitAgent};
+
 #[derive(Clone)]
 pub struct CellGridVis;
 
@@ -40,17 +42,21 @@ impl VisualizationState<CellGrid> for CellGridVis {
 
     fn get_agent_render(
         &self,
-        _agent: &Box<dyn krabmaga::engine::agent::Agent>,
+        agent: &Box<dyn krabmaga::engine::agent::Agent>,
         _state: &CellGrid,
     ) -> Option<Box<dyn krabmaga::visualization::agent_render::AgentRender>> {
-        None
+        match agent.downcast_ref::<ExitAgent>() {
+            Some(e) => Some(Box::new(ExitVis {id : e.0})),
+            None => None,
+        }
+        
     }
 
     fn get_agent(
         &self,
-        _agent_render: &Box<dyn krabmaga::visualization::agent_render::AgentRender>,
+        agent_render: &Box<dyn krabmaga::visualization::agent_render::AgentRender>,
         _state: &Box<&dyn krabmaga::engine::state::State>,
     ) -> Option<Box<dyn krabmaga::engine::agent::Agent>> {
-        None
+        Some(Box::new(ExitAgent(5)))
     }
 }

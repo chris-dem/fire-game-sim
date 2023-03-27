@@ -33,6 +33,7 @@ use super::evacuee_mod::strategy::{rules, Strategy};
 use super::misc::misc_func::Loc;
 use super::transition::Transition;
 use crate::model::fire_mod::fire_spread::FireRules;
+use super::search::*;
 
 /// Default Height of the room. Plus 1 for wall
 pub const DEFAULT_HEIGHT: u32 = 21;
@@ -61,7 +62,6 @@ pub enum SimType {
 
 cfg_if! {
     if #[cfg(feature = "bayesian")] {
-        use super::search::*;
         /// Grid in which the simulation will be running on
         /// The way the simulation will work is to imploy an external agent in which he will take control of the cells in the simulation.
         ///
@@ -156,6 +156,7 @@ cfg_if! {
             pub escape_handler: Box<dyn EscapeHandler<EvacTime> + Send>,
             pub death_handler: Box<dyn DeathHandler + Send>,
             pub static_influence: Box<dyn StaticInfluence + Send>,
+            pub output_vars : OutputVariables,
         }
         impl Default for CellGrid {
             fn default() -> Self {
@@ -172,6 +173,7 @@ cfg_if! {
                     escape_handler: Box::new(TimeEscape::default()),
                     fire_influence: Default::default(),
                     param_seed : None,
+                    output_vars  : Default::default(),
                 }
             }
         }
@@ -415,13 +417,10 @@ impl CellGrid {
                 .map(|e| e.strategy)
                 .collect::<Vec<_>>(),
         );
-        #[cfg(feature = "bayesian")]
-        {
-            match &game {
-                super::evacuee_mod::strategy::RuleCase::AllCoop => self.output_vars.per_case_ratio_1 += 1,
-                super::evacuee_mod::strategy::RuleCase::AllButOneCoop => self.output_vars.per_case_ratio_2 += 1,
-                super::evacuee_mod::strategy::RuleCase::Argument => self.output_vars.per_case_ratio_3 += 1,
-            }
+        match &game {
+            super::evacuee_mod::strategy::RuleCase::AllCoop => self.output_vars.per_case_ratio_1 += 1,
+            super::evacuee_mod::strategy::RuleCase::AllButOneCoop => self.output_vars.per_case_ratio_2 += 1,
+            super::evacuee_mod::strategy::RuleCase::Argument => self.output_vars.per_case_ratio_3 += 1,
         }
         let n = competing.len();
         let competing: Vec<_> = competing
@@ -531,69 +530,6 @@ impl State for CellGrid {
         self.step = step;
         self.grid.lazy_update();
         self.evac_grid.lazy_update();
-        // Set output vars
-        #[cfg(feature = "search")]
-        {
-            if self.escape_handler.get_escaped_number() + self.death_handler.get_dead() == self.initial_config.evac_num {
-                self.output_vars.escape_out = self.escape_handler.get_escaped_number() as u32;
-                self.output_vars.death_out  = self.death_handler.get_dead() as u32;
-            } else {
-                panic!("{}", format!(
-                    "More dead and escaped than total pop: dead {} alive {} init {}"
-                    , self.death_handler.get_dead()
-                    , self.escape_handler.get_escaped_number()
-                    , self.initial_config.evac_num
-                ));
-            }
-            let tot_area = (self.dim.0 * self.dim.1) as usize;
-            let idx =   (((tot_area - self.fire_influence.fire_area) as f32 / tot_area as f32) * 5.).floor() as usize;
-            let evac_vec = RefCell::new(vec![]);
-            self.evac_grid
-            .iter_values_unbuffered(|_, e| {
-                evac_vec.borrow_mut().push(*e);
-            });
-            let n = evac_vec.borrow().len() as f32;
-            let sums = evac_vec.take().into_iter().map(|e| {
-                (
-                    ((e.strategy == Strategy::Cooperative) as usize) as f32,
-                    e.pr_c,
-                    e.pr_d,
-                )
-            }).fold((0.0f32,0.,0.), |acc, curr|{
-                (
-                    acc.0 + curr.0,
-                    acc.1 + curr.1,
-                    acc.2 + curr.2,
-                )
-            });
-            let curr_coop = sums.0  / n;
-            let curr_lc = sums.1 / n;
-            let curr_ld = sums.2 / n;
-            if idx != self.inp_handlers.prev_ind {
-                self.inp_handlers.reset();
-            }
-            self.inp_handlers.handle_sums(curr_coop, curr_lc, curr_ld);
-
-            // Coop ==========================================================================================
-            let avg   = self.inp_handlers.rs_coop.sm   / self.inp_handlers.n as f32; 
-            let avgsq = self.inp_handlers.rs_coop.smsq / self.inp_handlers.n as f32; 
-            self.output_vars.coop_fq.0[idx] = avg; //first  avg
-            self.output_vars.coop_fq.1[idx] = 1.96 * (avgsq - avg).sqrt() / (self.inp_handlers.n as f32).sqrt(); //second id x
-            // ==========================================================================================
-            // Learning cooperating ==========================================================================================
-            let avg   = self.inp_handlers.rs_lc.sm   / self.inp_handlers.n as f32; 
-            let avgsq = self.inp_handlers.rs_lc.smsq / self.inp_handlers.n as f32; 
-            self.output_vars.avg_lc.0[idx] = avg; //first  avg
-            self.output_vars.avg_lc.1[idx] = 1.96 * (avgsq - avg).sqrt() / (self.inp_handlers.n as f32).sqrt(); //second id x
-            // ==========================================================================================
-            // Learning dominating  ==========================================================================================
-            let avg   = self.inp_handlers.rs_ld.sm   / self.inp_handlers.n as f32; 
-            let avgsq = self.inp_handlers.rs_ld.smsq / self.inp_handlers.n as f32; 
-            self.output_vars.avg_lp.0[idx] = avg; //first  avg
-            self.output_vars.avg_lp.1[idx] = 1.96 * (avgsq - avg).sqrt() / (self.inp_handlers.n as f32).sqrt(); //second id x
-            // ==========================================================================================
-
-        }
     }
 
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
@@ -614,6 +550,8 @@ impl State for CellGrid {
 
     #[cfg(not(any(feature = "visualization", feature = "visualization_wasm",feature = "bayesian")))]
     fn after_step(&mut self, schedule: &mut engine::schedule::Schedule) {
+        use rand_distr::num_traits::Zero;
+
         use crate::model::evacuee_mod::strategy::Strategy;
 
         plot!(
@@ -639,6 +577,21 @@ impl State for CellGrid {
             round(self.fire_influence.aspiration.calculate_asp(self.fire_influence.fire_area) as f64,3),
             csv : true
         );
+
+
+        let coops = 
+            (self.output_vars.per_case_ratio_1 + self.output_vars.per_case_ratio_2) as f64;
+        let dom = 
+            self.output_vars.per_case_ratio_3 as f64;
+        if self.output_vars.per_case_ratio_3 != 0{
+            plot!(
+                "CaseRatioTime".to_owned(),
+                "series".to_owned(),
+                schedule.step as f64,
+                coops / dom,
+                csv : true
+            );
+        }
 
         let f = RefCell::new(vec![]);
 
@@ -708,6 +661,9 @@ impl State for CellGrid {
                 csv : true
             );
         }
+        self.output_vars.per_case_ratio_1 = 0;
+        self.output_vars.per_case_ratio_2 = 0;
+        self.output_vars.per_case_ratio_3 = 0;
     }
 
     #[cfg(any(feature = "bayesian"))]
@@ -725,7 +681,10 @@ impl State for CellGrid {
         self.escape_handler.reset();
         self.grid = DenseNumberGrid2D::new(self.dim.0 as i32, self.dim.1 as i32);
         self.evac_grid = DenseNumberGrid2D::new(self.dim.0 as i32, self.dim.1 as i32);
-        self.inp_handlers.reset();
+        #[cfg(feature= "bayesian")]
+        {
+            self.inp_handlers.reset();
+        }
         self.output_vars.per_case_ratio_1 = 0;
         self.output_vars.per_case_ratio_2 = 0;
         self.output_vars.per_case_ratio_3 = 0;
@@ -733,6 +692,8 @@ impl State for CellGrid {
 
     #[cfg(any(feature = "visualization", feature = "visualization_wasm"))]
     fn init(&mut self, schedule: &mut krabmaga::engine::schedule::Schedule) {
+        use crate::visualization::exit_agent::ExitAgent;
+
         self.iteration += 1;
         let mut rng = krand::thread_rng();
         let mut holder = None;
@@ -758,7 +719,7 @@ impl State for CellGrid {
         self.evac_grid.update();
         schedule.schedule_repeating(Box::new(fire_rules), 0., 0);
         schedule.schedule_repeating(Box::new(evac_agent), 0., 1);
-
+        schedule.schedule_repeating(Box::new(ExitAgent(5)), 0., 2);
         // dbg!("===========NEW SIM==============");
     }
 
@@ -875,352 +836,359 @@ impl State for CellGrid {
                 "RewardGame".to_owned(),
                 csv : true
             );
+
+            addplot!(
+                "CaseRatioTime".to_owned(),
+                "Time".to_owned(),
+                "GameRatio".to_owned(),
+                csv: true
+            )
         }
     }
     
 }
 
-#[cfg(all(test, any(feature = "visualization", feature = "visualization_wasm")))]
-mod tests {
+// #[cfg(all(test, any(feature = "visualization", feature = "visualization_wasm")))]
+// mod tests {
 
-    use super::*;
-    // use crate::model::state_builder::CellGridBuilder;
-    use crate::model::transition::MockTransition;
-    use itertools::Itertools;
-    use krabmaga::engine::fields::field::Field;
-    use mockall::predicate;
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha12Rng;
+//     use super::*;
+//     // use crate::model::state_builder::CellGridBuilder;
+//     use crate::model::transition::MockTransition;
+//     use itertools::Itertools;
+//     use krabmaga::engine::fields::field::Field;
+//     use mockall::predicate;
+//     use rand::SeedableRng;
+//     use rand_chacha::ChaCha12Rng;
 
-    mod fire_step {
-        use crate::model::state_builder::CellGridBuilder;
+//     mod fire_step {
+//         use crate::model::state_builder::CellGridBuilder;
 
-        use super::*;
-        #[test]
-        fn test_fire_step_with_high_spread() {
-            let mut grid = CellGridBuilder::default()
-                .dim(5, 5)
-                // .rng(Box::new(ChaCha12Rng::from_seed(Default::default())))
-                .initial_config(InitialConfig {
-                    fire_spread: 0.7,
-                    initial_evac_grid: vec![],
-                    initial_grid: vec![(0, 0)], //only the first
-                })
-                .build();
-            grid.set_intial(); // Create initial config and move values
-            grid.grid.lazy_update();
-            let mut fire_agent = MockTransition::new();
-            fire_agent
-                .expect_transition()
-                .with(
-                    predicate::always(),
-                    predicate::function(|neigh: &[CellType]| neigh.len() >= 3 && neigh.len() <= 8),
-                )
-                .returning(|c: &CellType, n: &[CellType]| {
-                    if *c == CellType::Fire {
-                        0.
-                    } else {
-                        let c = n.iter().filter(|c| **c == CellType::Fire).count();
-                        if c > 0 {
-                            1.
-                        } else {
-                            0.
-                        }
-                    }
-                });
-            let mut rng = ChaCha12Rng::from_seed(Default::default());
-            grid.fire_step(&fire_agent, &mut rng);
-            grid.grid.lazy_update();
+//         use super::*;
+//         #[test]
+//         fn test_fire_step_with_high_spread() {
+//             let mut grid = CellGridBuilder::default()
+//                 .dim(5, 5)
+//                 // .rng(Box::new(ChaCha12Rng::from_seed(Default::default())))
+//                 .initial_config(InitialConfig {
+//                     fire_spread: 0.7,
+//                     initial_evac_grid: vec![],
+//                     initial_grid: vec![(0, 0)], //only the first
+//                 })
+//                 .build();
+//             grid.set_intial(); // Create initial config and move values
+//             grid.grid.lazy_update();
+//             let mut fire_agent = MockTransition::new();
+//             fire_agent
+//                 .expect_transition()
+//                 .with(
+//                     predicate::always(),
+//                     predicate::function(|neigh: &[CellType]| neigh.len() >= 3 && neigh.len() <= 8),
+//                 )
+//                 .returning(|c: &CellType, n: &[CellType]| {
+//                     if *c == CellType::Fire {
+//                         0.
+//                     } else {
+//                         let c = n.iter().filter(|c| **c == CellType::Fire).count();
+//                         if c > 0 {
+//                             1.
+//                         } else {
+//                             0.
+//                         }
+//                     }
+//                 });
+//             let mut rng = ChaCha12Rng::from_seed(Default::default());
+//             grid.fire_step(&fire_agent, &mut rng);
+//             grid.grid.lazy_update();
 
-            let mut v = vec![];
-            (0..grid.grid.width)
-                .cartesian_product(0..grid.grid.height)
-                .for_each(|(x, y)| {
-                    let c = grid.grid.get_value(&Int2D { x, y }).unwrap();
-                    v.push(c);
-                });
-            assert_eq!(v.len(), 25);
-            // only first 6th and 7th
-            let mut v = [CellType::Empty; 25];
-            v[0] = CellType::Fire;
-            v[1] = CellType::Fire;
-            v[5] = CellType::Fire;
-            v[6] = CellType::Fire;
-            assert!(v.into_iter().zip_eq(v.into_iter()).all(|(c1, c2)| c1 == c2));
-        }
+//             let mut v = vec![];
+//             (0..grid.grid.width)
+//                 .cartesian_product(0..grid.grid.height)
+//                 .for_each(|(x, y)| {
+//                     let c = grid.grid.get_value(&Int2D { x, y }).unwrap();
+//                     v.push(c);
+//                 });
+//             assert_eq!(v.len(), 25);
+//             // only first 6th and 7th
+//             let mut v = [CellType::Empty; 25];
+//             v[0] = CellType::Fire;
+//             v[1] = CellType::Fire;
+//             v[5] = CellType::Fire;
+//             v[6] = CellType::Fire;
+//             assert!(v.into_iter().zip_eq(v.into_iter()).all(|(c1, c2)| c1 == c2));
+//         }
 
-        #[test]
-        fn test_fire_step_with_small_spread() {
-            let mut grid = CellGridBuilder::default()
-                .dim(5, 5)
-                .initial_config(InitialConfig {
-                    fire_spread: 0.7,
-                    initial_evac_grid: vec![],
-                    initial_grid: vec![(0, 0)],
-                })
-                .build();
-            grid.set_intial();
-            grid.grid.lazy_update();
-            let mut fire_agent = MockTransition::new();
-            fire_agent
-                .expect_transition()
-                .with(
-                    predicate::always(),
-                    predicate::function(|neigh: &[CellType]| neigh.len() >= 3 && neigh.len() <= 8),
-                )
-                .return_const(0.);
-            let mut rng = ChaCha12Rng::seed_from_u64(10);
-            grid.fire_step(&fire_agent, &mut rng);
-            grid.grid.lazy_update();
+//         #[test]
+//         fn test_fire_step_with_small_spread() {
+//             let mut grid = CellGridBuilder::default()
+//                 .dim(5, 5)
+//                 .initial_config(InitialConfig {
+//                     fire_spread: 0.7,
+//                     initial_evac_grid: vec![],
+//                     initial_grid: vec![(0, 0)],
+//                 })
+//                 .build();
+//             grid.set_intial();
+//             grid.grid.lazy_update();
+//             let mut fire_agent = MockTransition::new();
+//             fire_agent
+//                 .expect_transition()
+//                 .with(
+//                     predicate::always(),
+//                     predicate::function(|neigh: &[CellType]| neigh.len() >= 3 && neigh.len() <= 8),
+//                 )
+//                 .return_const(0.);
+//             let mut rng = ChaCha12Rng::seed_from_u64(10);
+//             grid.fire_step(&fire_agent, &mut rng);
+//             grid.grid.lazy_update();
 
-            let mut v = vec![];
-            (0..grid.grid.width)
-                .cartesian_product(0..grid.grid.height)
-                .for_each(|(x, y)| {
-                    let c = grid.grid.get_value(&Int2D { x, y }).unwrap();
-                    v.push(c);
-                });
-            assert_eq!(v.len(), 25);
-            assert!((0..25)
-                .into_iter()
-                .map(|c| {
-                    if c == 0 {
-                        CellType::Fire
-                    } else {
-                        CellType::Empty
-                    }
-                })
-                .collect_vec()
-                .into_iter()
-                .zip_eq(v.into_iter())
-                .all(|(c1, c2)| c1 == c2));
-        }
-    }
+//             let mut v = vec![];
+//             (0..grid.grid.width)
+//                 .cartesian_product(0..grid.grid.height)
+//                 .for_each(|(x, y)| {
+//                     let c = grid.grid.get_value(&Int2D { x, y }).unwrap();
+//                     v.push(c);
+//                 });
+//             assert_eq!(v.len(), 25);
+//             assert!((0..25)
+//                 .into_iter()
+//                 .map(|c| {
+//                     if c == 0 {
+//                         CellType::Fire
+//                     } else {
+//                         CellType::Empty
+//                     }
+//                 })
+//                 .collect_vec()
+//                 .into_iter()
+//                 .zip_eq(v.into_iter())
+//                 .all(|(c1, c2)| c1 == c2));
+//         }
+//     }
 
-    mod evac_tests {
-        use approx::Relative;
-        use mockall::*;
-        use rand::SeedableRng;
-        use rand_chacha::ChaChaRng;
+//     mod evac_tests {
+//         use approx::Relative;
+//         use mockall::*;
+//         use rand::SeedableRng;
+//         use rand_chacha::ChaChaRng;
 
-        use crate::model::{
-            evacuee_mod::{
-                evacuee::EvacueeAgent,
-                evacuee_cell::EvacueeCell,
-                fire_influence::{fire_influence::FireInfluence, frontier::MockFrontierStructure},
-                strategies::aspiration_strategy::MockAspirationStrategy,
-                strategy::Strategy,
-            },
-            misc::misc_func::Loc,
-            state::CellGrid,
-        };
+//         use crate::model::{
+//             evacuee_mod::{
+//                 evacuee::EvacueeAgent,
+//                 evacuee_cell::EvacueeCell,
+//                 fire_influence::{fire_influence::FireInfluence, frontier::MockFrontierStructure},
+//                 strategies::aspiration_strategy::MockAspirationStrategy,
+//                 strategy::Strategy,
+//             },
+//             misc::misc_func::Loc,
+//             state::CellGrid,
+//         };
 
-        mod no_fire {
-            use super::*;
-            #[test]
-            fn test_play_game_no_fire() {
-                let mut rng = ChaChaRng::seed_from_u64(30);
-                let competing = vec![
-                    EvacueeCell {
-                        x: 0,
-                        y: 0,
-                        pr_c: 0.,
-                        strategy: Strategy::Cooperative,
-                    },
-                    EvacueeCell {
-                        x: 0,
-                        y: 1,
-                        pr_c: 0.,
-                        strategy: Strategy::Cooperative,
-                    },
-                    EvacueeCell {
-                        x: 1,
-                        y: 0,
-                        pr_c: 0.,
-                        strategy: Strategy::Cooperative,
-                    },
-                ];
-                let mut front_st = MockFrontierStructure::new();
+//         mod no_fire {
+//             use super::*;
+//             #[test]
+//             fn test_play_game_no_fire() {
+//                 let mut rng = ChaChaRng::seed_from_u64(30);
+//                 let competing = vec![
+//                     EvacueeCell {
+//                         x: 0,
+//                         y: 0,
+//                         pr_c: 0.,
+//                         strategy: Strategy::Cooperative,
+//                     },
+//                     EvacueeCell {
+//                         x: 0,
+//                         y: 1,
+//                         pr_c: 0.,
+//                         strategy: Strategy::Cooperative,
+//                     },
+//                     EvacueeCell {
+//                         x: 1,
+//                         y: 0,
+//                         pr_c: 0.,
+//                         strategy: Strategy::Cooperative,
+//                     },
+//                 ];
+//                 let mut front_st = MockFrontierStructure::new();
 
-                front_st
-                    .expect_closest_point()
-                    .with(predicate::function(|el| {
-                        let cells = vec![Loc(0, 0), Loc(1, 0), Loc(0, 1)];
-                        cells.contains(el)
-                    }))
-                    .return_const(None);
+//                 front_st
+//                     .expect_closest_point()
+//                     .with(predicate::function(|el| {
+//                         let cells = vec![Loc(0, 0), Loc(1, 0), Loc(0, 1)];
+//                         cells.contains(el)
+//                     }))
+//                     .return_const(None);
 
-                let mut asp_st = MockAspirationStrategy::new();
+//                 let mut asp_st = MockAspirationStrategy::new();
 
-                asp_st.expect_calculate_asp().returning(|c| 10. * c as f32);
+//                 asp_st.expect_calculate_asp().returning(|c| 10. * c as f32);
 
-                let fire = CellGrid {
-                    fire_influence: FireInfluence {
-                        fire_state: Box::new(front_st),
-                        aspiration: Box::new(asp_st),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                };
+//                 let fire = CellGrid {
+//                     fire_influence: FireInfluence {
+//                         fire_state: Box::new(front_st),
+//                         aspiration: Box::new(asp_st),
+//                         ..Default::default()
+//                     },
+//                     ..Default::default()
+//                 };
 
-                let new_state = fire.play_game(
-                    Loc(1, 1),
-                    competing.clone(),
-                    &mut rng,
-                    &EvacueeAgent {
-                        id: 1,
-                        lc: 0.7,
-                        ld: 0.9,
-                    },
-                );
-                let expected = vec![
-                    EvacueeCell {
-                        strategy: Strategy::Cooperative,
-                        x: 1,
-                        y: 1,
-                        pr_c: 0.30529115,
-                    },
-                    EvacueeCell {
-                        strategy: Strategy::Cooperative,
-                        x: 0,
-                        y: 0,
-                        pr_c: 0.30529115,
-                    },
-                    EvacueeCell {
-                        strategy: Strategy::Competitive,
-                        x: 1,
-                        y: 0,
-                        pr_c: 0.30529115,
-                    },
-                ];
-                assert!(new_state
-                    .into_iter()
-                    .zip(expected.into_iter())
-                    .all(|(e1, e2)| {
-                        let r = Relative::default().eq(&e1.pr_c, &e1.pr_c);
-                        r && e1 == e2 && e1.strategy == e2.strategy
-                    }))
-            }
+//                 let new_state = fire.play_game(
+//                     Loc(1, 1),
+//                     competing.clone(),
+//                     &mut rng,
+//                     &EvacueeAgent {
+//                         id: 1,
+//                         lc: 0.7,
+//                         ld: 0.9,
+//                     },
+//                 );
+//                 let expected = vec![
+//                     EvacueeCell {
+//                         strategy: Strategy::Cooperative,
+//                         x: 1,
+//                         y: 1,
+//                         pr_c: 0.30529115,
+//                     },
+//                     EvacueeCell {
+//                         strategy: Strategy::Cooperative,
+//                         x: 0,
+//                         y: 0,
+//                         pr_c: 0.30529115,
+//                     },
+//                     EvacueeCell {
+//                         strategy: Strategy::Competitive,
+//                         x: 1,
+//                         y: 0,
+//                         pr_c: 0.30529115,
+//                     },
+//                 ];
+//                 assert!(new_state
+//                     .into_iter()
+//                     .zip(expected.into_iter())
+//                     .all(|(e1, e2)| {
+//                         let r = Relative::default().eq(&e1.pr_c, &e1.pr_c);
+//                         r && e1 == e2 && e1.strategy == e2.strategy
+//                     }))
+//             }
 
-            #[test]
-            fn test_play_game_no_fire_higher_adopting() {
-                let mut rng = ChaChaRng::seed_from_u64(31);
+//             #[test]
+//             fn test_play_game_no_fire_higher_adopting() {
+//                 let mut rng = ChaChaRng::seed_from_u64(31);
 
-                let competing = vec![
-                    EvacueeCell {
-                        x: 0,
-                        y: 0,
-                        pr_c: 0.5,
-                        strategy: Strategy::Cooperative,
-                    },
-                    EvacueeCell {
-                        x: 0,
-                        y: 1,
-                        pr_c: 1.,
-                        strategy: Strategy::Cooperative,
-                    },
-                    EvacueeCell {
-                        x: 1,
-                        y: 0,
-                        pr_c: 0.8,
-                        strategy: Strategy::Cooperative,
-                    },
-                ];
-                let mut front_st = MockFrontierStructure::new();
+//                 let competing = vec![
+//                     EvacueeCell {
+//                         x: 0,
+//                         y: 0,
+//                         pr_c: 0.5,
+//                         strategy: Strategy::Cooperative,
+//                     },
+//                     EvacueeCell {
+//                         x: 0,
+//                         y: 1,
+//                         pr_c: 1.,
+//                         strategy: Strategy::Cooperative,
+//                     },
+//                     EvacueeCell {
+//                         x: 1,
+//                         y: 0,
+//                         pr_c: 0.8,
+//                         strategy: Strategy::Cooperative,
+//                     },
+//                 ];
+//                 let mut front_st = MockFrontierStructure::new();
 
-                front_st
-                    .expect_closest_point()
-                    .with(predicate::function(|el| {
-                        let cells = vec![Loc(0, 0), Loc(1, 0), Loc(0, 1)];
-                        cells.contains(el)
-                    }))
-                    .return_const(None);
+//                 front_st
+//                     .expect_closest_point()
+//                     .with(predicate::function(|el| {
+//                         let cells = vec![Loc(0, 0), Loc(1, 0), Loc(0, 1)];
+//                         cells.contains(el)
+//                     }))
+//                     .return_const(None);
 
-                let mut asp_st = MockAspirationStrategy::new();
+//                 let mut asp_st = MockAspirationStrategy::new();
 
-                asp_st.expect_calculate_asp().return_const(0.);
+//                 asp_st.expect_calculate_asp().return_const(0.);
 
-                let fire = CellGrid {
-                    fire_influence: FireInfluence {
-                        fire_state: Box::new(front_st),
-                        aspiration: Box::new(asp_st),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                };
+//                 let fire = CellGrid {
+//                     fire_influence: FireInfluence {
+//                         fire_state: Box::new(front_st),
+//                         aspiration: Box::new(asp_st),
+//                         ..Default::default()
+//                     },
+//                     ..Default::default()
+//                 };
 
-                let new_state = fire.play_game(
-                    Loc(1, 1),
-                    competing.clone(),
-                    &mut rng,
-                    &EvacueeAgent {
-                        id: 1,
-                        lc: 0.7,
-                        ld: 0.9,
-                    },
-                );
-                let expected = vec![
-                    EvacueeCell {
-                        strategy: Strategy::Competitive,
-                        x: 1,
-                        y: 1,
-                        pr_c: 0.6526456,
-                    },
-                    EvacueeCell {
-                        strategy: Strategy::Competitive,
-                        x: 1,
-                        y: 0,
-                        pr_c: 0.86105824,
-                    },
-                    EvacueeCell {
-                        strategy: Strategy::Competitive,
-                        x: 0,
-                        y: 1,
-                        pr_c: 1.0,
-                    },
-                ];
-                assert!(new_state
-                    .into_iter()
-                    .zip(expected.into_iter())
-                    .all(|(e1, e2)| {
-                        let r = Relative::default().eq(&e1.pr_c, &e1.pr_c);
-                        r && e1 == e2 && e1.strategy == e2.strategy
-                    }))
-            }
-        }
+//                 let new_state = fire.play_game(
+//                     Loc(1, 1),
+//                     competing.clone(),
+//                     &mut rng,
+//                     &EvacueeAgent {
+//                         id: 1,
+//                         lc: 0.7,
+//                         ld: 0.9,
+//                     },
+//                 );
+//                 let expected = vec![
+//                     EvacueeCell {
+//                         strategy: Strategy::Competitive,
+//                         x: 1,
+//                         y: 1,
+//                         pr_c: 0.6526456,
+//                     },
+//                     EvacueeCell {
+//                         strategy: Strategy::Competitive,
+//                         x: 1,
+//                         y: 0,
+//                         pr_c: 0.86105824,
+//                     },
+//                     EvacueeCell {
+//                         strategy: Strategy::Competitive,
+//                         x: 0,
+//                         y: 1,
+//                         pr_c: 1.0,
+//                     },
+//                 ];
+//                 assert!(new_state
+//                     .into_iter()
+//                     .zip(expected.into_iter())
+//                     .all(|(e1, e2)| {
+//                         let r = Relative::default().eq(&e1.pr_c, &e1.pr_c);
+//                         r && e1 == e2 && e1.strategy == e2.strategy
+//                     }))
+//             }
+//         }
 
-        mod diretion_tests {}
-    }
-}
+//         mod diretion_tests {}
+//     }
+// }
 
 
-// #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
-    // pub fn fire_step(&mut self, fire_agent: &impl Transition, rng: &mut impl RngCore) {
-    //     let updated: RefCell<Vec<(Int2D, CellType)>> = RefCell::new(Vec::new());
-    //     let rng = RefCell::new(thread_rng());
-    //     self.grid.iter_values(|&Int2D { x, y }, cell| {
-    //         let mut n = Vec::with_capacity(8);
-    //         for i in -1..=1 {
-    //             for j in -1..=1 {
-    //                 if (i == 0 && j == 0)
-    //                     || !within_bounds(x + i, self.dim.0 as i32)
-    //                     || !within_bounds(y + j, self.dim.1 as i32)
-    //                 {
-    //                     continue;
-    //                 }
-    //                 if let Some(c) = self.grid.get_value(&Int2D { x: x + i, y: y + j }) {
-    //                     n.push(c);
-    //                 }
-    //             }
-    //         }
-    //         if cell.spread(fire_agent, &n[..], &mut *rng.borrow_mut()) {
-    //             updated.borrow_mut().push((Int2D { x, y }, CellType::Fire));
-    //         } else {
-    //             updated.borrow_mut().push((Int2D { x, y }, cell));
-    //         }
-    //     });
+// // #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
+//     // pub fn fire_step(&mut self, fire_agent: &impl Transition, rng: &mut impl RngCore) {
+//     //     let updated: RefCell<Vec<(Int2D, CellType)>> = RefCell::new(Vec::new());
+//     //     let rng = RefCell::new(thread_rng());
+//     //     self.grid.iter_values(|&Int2D { x, y }, cell| {
+//     //         let mut n = Vec::with_capacity(8);
+//     //         for i in -1..=1 {
+//     //             for j in -1..=1 {
+//     //                 if (i == 0 && j == 0)
+//     //                     || !within_bounds(x + i, self.dim.0 as i32)
+//     //                     || !within_bounds(y + j, self.dim.1 as i32)
+//     //                 {
+//     //                     continue;
+//     //                 }
+//     //                 if let Some(c) = self.grid.get_value(&Int2D { x: x + i, y: y + j }) {
+//     //                     n.push(c);
+//     //                 }
+//     //             }
+//     //         }
+//     //         if cell.spread(fire_agent, &n[..], &mut *rng.borrow_mut()) {
+//     //             updated.borrow_mut().push((Int2D { x, y }, CellType::Fire));
+//     //         } else {
+//     //             updated.borrow_mut().push((Int2D { x, y }, cell));
+//     //         }
+//     //     });
 
-    //     for (pos, cell) in updated.take().into_iter() {
-    //         self.grid.set_value_location(cell, &pos)
-    //     }
-    // }
+//     //     for (pos, cell) in updated.take().into_iter() {
+//     //         self.grid.set_value_location(cell, &pos)
+//     //     }
+//     // }

@@ -9,5 +9,4 @@ pub mod state;
 pub mod state_builder;
 pub mod transition;
 pub mod arg_handling;
-#[cfg(any(feature="bayesian"))]
 pub mod search;

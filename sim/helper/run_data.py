@@ -15,7 +15,7 @@ for file_test in filt[0:]:
    for inp in os.listdir(file_p):
       act_file = os.path.join(file_p, inp)
       # RUN
-      cline =f"cargo run --release -- -f {file_test}/{inp}" 
+      cline =f"cargo run --no-default-features --release -- -f {file_test}/{inp}" 
       if os.system(cline):
          raise RuntimeError(f"program {cline} failed")
       full_paths = list(map(lambda  e : os.path.abspath(os.path.join(output_cwd,e)), os.listdir(output_cwd)))
