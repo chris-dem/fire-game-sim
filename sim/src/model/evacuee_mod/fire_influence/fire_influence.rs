@@ -2,7 +2,8 @@ use crate::model::{
     evacuee_mod::{
         strategies::{
             aspiration_strategy::{AspirationStrategy, LogAspManip},
-            ratio_strategy::{RatioStrategy, RootDist, IDdist}, reward_strategy::{RewardStrategy, InverseLogRoot},
+            ratio_strategy::{IDdist, RatioStrategy, RootDist},
+            reward_strategy::{InverseLogRoot, RewardStrategy},
         },
         strategy::{strategy_rewards, RSTP},
     },
@@ -29,7 +30,6 @@ pub struct FireInfluence {
     /// Reward game function used
     pub reward_game: Box<dyn RewardStrategy + Send>,
 }
-
 
 impl FireInfluence {
     pub fn reset(&mut self) {
@@ -59,7 +59,7 @@ impl FireInfluence {
     }
 
     #[cfg(any(feature = "visualization", feature = "visualization_wasm"))]
-    pub fn calculcate_rewards(&self, n: usize, point: &Loc, reward_b : f32) -> RSTP {
+    pub fn calculcate_rewards(&self, n: usize, point: &Loc, reward_b: f32) -> RSTP {
         let d = self.fire_state.closest_point(point).unwrap_or(0.5).sqrt();
         let r_t = self
             .ratio
@@ -69,14 +69,14 @@ impl FireInfluence {
     }
 
     #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
-    pub fn calculcate_rewards(&self, n: usize, point: &Loc, reward_b : f32) -> RSTP {
-        use krabmaga::{plot, *};
-
-        use crate::model::misc::misc_func::round;
+    pub fn calculcate_rewards(&self, n: usize, point: &Loc, reward_b: f32) -> RSTP {
         let d = self.fire_state.closest_point(point).unwrap_or(0.5).sqrt();
         let r_t = self.ratio.calculate_ratio(d); // If there are no points we set it to its smallest possible value
         #[cfg(not(any(feature = "bayesian")))]
         {
+            use krabmaga::{plot, *};
+
+            use crate::model::misc::misc_func::round;
             plot!(
                 "RatioDistance".to_owned(),
                 "series".to_owned(),
@@ -98,16 +98,20 @@ impl FireInfluence {
     }
 }
 
-#[cfg(all(test,not(any(feature = "visualization", feature = "visualization_wasm"))))]
+#[cfg(all(
+    test,
+    not(any(feature = "visualization", feature = "visualization_wasm"))
+))]
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
 
-    use crate::model::evacuee_mod::{fire_influence::{
-        fire_influence::FireInfluence, frontier::MockFrontierStructure,
-    }, strategies::reward_strategy::MockRewardStrategy};
+    use crate::model::evacuee_mod::{
+        fire_influence::{fire_influence::FireInfluence, frontier::MockFrontierStructure},
+        strategies::reward_strategy::MockRewardStrategy,
+    };
     use mockall::predicate;
 
     use crate::model::evacuee_mod::strategies::{
@@ -126,7 +130,6 @@ mod tests {
             .expect_calculate_ratio()
             .with(predicate::eq(0.5))
             .returning(|c| c);
-
 
         let fire = FireInfluence {
             fire_state: Box::new(frontier),
@@ -161,7 +164,6 @@ mod tests {
 
         ratio_st.expect_calculate_ratio().returning(|c| c.exp());
 
-
         let mut fire = FireInfluence {
             fire_state: Box::new(front_st),
             aspiration: Box::new(asp_st),
@@ -174,7 +176,7 @@ mod tests {
         assert_relative_eq!(fire.calculate_aspiration(), 10.);
         assert_relative_eq!(fire.get_movement_influence(&Loc(1, 1)), 1.);
         assert_eq!(
-            fire.calculcate_rewards(3, &Loc(1, 1),1.),
+            fire.calculcate_rewards(3, &Loc(1, 1), 1.),
             (
                 1. / 3. as f32,
                 0. as f32,
@@ -187,7 +189,7 @@ mod tests {
     #[test]
     fn mock_trivial() {
         let mut rng = ChaCha8Rng::seed_from_u64(2);
-        
+
         let mut fire = FireInfluence::default();
         let rn = rng.gen_range(5..=10);
 
@@ -209,7 +211,7 @@ mod tests {
         assert_relative_eq!(fire.get_movement_influence(&Loc(3, 9)), 0.5);
         assert_relative_eq!(fire.get_movement_influence(&Loc(7, 10)), 10.);
         assert_eq!(
-            fire.calculcate_rewards(2, &Loc(6, 6),1.),
+            fire.calculcate_rewards(2, &Loc(6, 6), 1.),
             (1. / 2., 0., (1. - 3.0 / 2.), -3. / 2.)
         );
     }

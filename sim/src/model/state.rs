@@ -1,8 +1,7 @@
 use crate::model::fire_mod::fire_cell::*;
 use crate::model::misc::misc_func::round;
-use krabmaga::cfg_if::cfg_if;
-use rand_chacha::ChaChaRng;
 use itertools::Itertools;
+use krabmaga::cfg_if::cfg_if;
 use krabmaga::engine::fields::field::Field;
 use krabmaga::engine::state::State;
 use krabmaga::engine::{fields::dense_number_grid_2d::DenseNumberGrid2D, location::Int2D};
@@ -12,6 +11,7 @@ use krabmaga::{Distribution, HashMap, Rng};
 use rand::distributions::WeightedIndex;
 use rand::prelude::*;
 use rand::RngCore;
+use rand_chacha::ChaChaRng;
 use serde::Deserialize;
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -31,9 +31,9 @@ use super::evacuee_mod::strategies::reward_strategy::RootReward;
 use super::evacuee_mod::strategy::{rules, Strategy};
 // use super::file_handling::file_handler::FileHandler;
 use super::misc::misc_func::Loc;
+use super::search::*;
 use super::transition::Transition;
 use crate::model::fire_mod::fire_spread::FireRules;
-use super::search::*;
 
 /// Default Height of the room. Plus 1 for wall
 pub const DEFAULT_HEIGHT: u32 = 21;
@@ -48,8 +48,8 @@ pub struct InitialConfig {
     pub initial_evac_grid: Option<Vec<EvacueeCell>>,
     pub evac_num: usize,
     pub map_seed: Option<u64>,
-    pub lc : Option<f32>,
-    pub ld : Option<f32>,
+    pub lc: Option<f32>,
+    pub ld: Option<f32>,
     pub fire_spread: Option<f32>,
 }
 
@@ -58,7 +58,6 @@ pub enum SimType {
     Flow,
     Total,
 }
-
 
 cfg_if! {
     if #[cfg(feature = "bayesian")] {
@@ -105,7 +104,7 @@ cfg_if! {
         impl CellGrid {
             pub fn new_training(search : InputSearch, nw : u32, nh : u32) -> Self{
                 // let nw = DEFAULT_WIDTH;
-                // let nh = DEFAULT_HEIGHT; 
+                // let nh = DEFAULT_HEIGHT;
                 let lc = search.lc;
                 let ld = search.ld;
                 let fire_spread = 0.2;
@@ -134,7 +133,7 @@ cfg_if! {
                     },
                     static_influence: Box::new(ExitInfluence::new(static_infl, &Loc(nw as i32 / 2, nh as i32)) ),
                     ..Default::default()
-                
+
                 }
             }
         }
@@ -178,7 +177,7 @@ cfg_if! {
             }
         }
 
-        
+
 
     }
 }
@@ -188,13 +187,12 @@ pub fn within_bounds(val: i32, limit: i32) -> bool {
 }
 
 impl CellGrid {
-
     /// Apply InitialConfiguration to the grid
     pub fn set_intial(&mut self, rng: &mut dyn RngCore) {
         let mut seed_rng = None;
         let rng = self.initial_config.map_seed.map_or(rng, |c| {
             seed_rng = Some(rand_chacha::ChaCha8Rng::seed_from_u64(c));
-            seed_rng.as_mut().unwrap()    
+            seed_rng.as_mut().unwrap()
         });
         let fire_start = self.initial_config.initial_grid.unwrap_or_else(|| {
             let y = 0;
@@ -397,9 +395,16 @@ impl CellGrid {
         }
         // dbg!(dist, &competing, self.grid.get_value(loc))
         let dist_to_exit = self.static_influence.static_influence(&dist.into());
-        let reward_b = self.fire_influence.reward_game.calculate_reward(dist_to_exit);
-        #[cfg(not(any(feature = "visualization", feature = "visualization_wasm",feature = "bayesian")))]
+        #[cfg(not(any(
+            feature = "visualization",
+            feature = "visualization_wasm",
+            feature = "bayesian"
+        )))]
         {
+            let reward_b = self
+                .fire_influence
+                .reward_game
+                .calculate_reward(dist_to_exit);
             plot!(
                 "RewardGameDistance".to_owned(),
                 "series".to_owned(),
@@ -418,20 +423,23 @@ impl CellGrid {
                 .collect::<Vec<_>>(),
         );
         match &game {
-            super::evacuee_mod::strategy::RuleCase::AllCoop => self.output_vars.per_case_ratio_1 += 1,
-            super::evacuee_mod::strategy::RuleCase::AllButOneCoop => self.output_vars.per_case_ratio_2 += 1,
-            super::evacuee_mod::strategy::RuleCase::Argument => self.output_vars.per_case_ratio_3 += 1,
+            super::evacuee_mod::strategy::RuleCase::AllCoop => {
+                self.output_vars.per_case_ratio_1 += 1
+            }
+            super::evacuee_mod::strategy::RuleCase::AllButOneCoop => {
+                self.output_vars.per_case_ratio_2 += 1
+            }
+            super::evacuee_mod::strategy::RuleCase::Argument => {
+                self.output_vars.per_case_ratio_3 += 1
+            }
         }
         let n = competing.len();
         let competing: Vec<_> = competing
             .into_iter()
             .map(|e| {
                 (
-                    self.fire_influence.calculcate_rewards(
-                        n,
-                        &Loc(e.x, e.y),
-                        dist_to_exit
-                    ),
+                    self.fire_influence
+                        .calculcate_rewards(n, &Loc(e.x, e.y), dist_to_exit),
                     e,
                 )
             })
@@ -441,36 +449,42 @@ impl CellGrid {
 
         // self.file_handler.curr_line.asp = asp;
         let ids = rules(game, competing, rng, asp);
-        let lis = if let Ok(ids) = ids {
-            [(dist, ids[0])]
-                .into_iter()
-                .chain(ids[1..].into_iter().map(|(d, c)| (Loc(c.x, c.y), (*d, *c))))
-                .collect_vec()
+        let lis: Box<dyn Iterator<Item = _>> = if let Ok(mut ids) = ids {
+            Box::new(
+                [(dist, ids.next().unwrap())]
+                    .into_iter()
+                    .chain(ids.map(|(d, c)| (Loc(c.x, c.y), (d, c)))),
+            )
         } else {
-            ids.unwrap_err()
-                .into_iter()
-                .map(|(d, c)| (Loc(c.x, c.y), (d, c)))
-                .collect_vec()
+            Box::new(
+                ids.err()
+                    .unwrap()
+                    // .into_iter()
+                    .map(|(d, c)| (Loc(c.x, c.y), (d, c))),
+            )
         };
-        lis.into_iter()
-            .map(|(c, (stim, mut evac))| {
-                // self.file_handler.curr_line.reward.update(stim);
-                #[cfg(not(any(feature = "visualization", feature = "visualization_wasm",feature = "bayesian")))]
-                {
-                    plot!(
-                        "RewardAspiration".to_owned(),
-                        format!("{game:?}"),
-                        round(asp as f64,3) ,
-                        round(stim as f64,3),
-                        csv:true
-                    );
-                }
-                evac_agent.calculate_strategies(&mut evac,rng, stim);
-                evac.x = c.0;
-                evac.y = c.1;
-                evac
-            })
-            .collect()
+        lis.map(|(c, (stim, mut evac))| {
+            // self.file_handler.curr_line.reward.update(stim);
+            #[cfg(not(any(
+                feature = "visualization",
+                feature = "visualization_wasm",
+                feature = "bayesian"
+            )))]
+            {
+                plot!(
+                    "RewardAspiration".to_owned(),
+                    format!("{game:?}"),
+                    round(asp as f64,3) ,
+                    round(stim as f64,3),
+                    csv:true
+                );
+            }
+            evac_agent.calculate_strategies(&mut evac, rng, stim);
+            evac.x = c.0;
+            evac.y = c.1;
+            evac
+        })
+        .collect()
     }
 
     pub fn evacuee_step(&mut self, evacuee_agent: &EvacueeAgent, rng: &mut impl RngCore) {
@@ -479,8 +493,8 @@ impl CellGrid {
             .into_iter()
             .flat_map(|(dist, competing)| self.play_game(dist, competing, rng, evacuee_agent))
             .chain(still.into_iter())
-            .collect::<Vec<_>>();
-        for e in lp.into_iter() {
+            .collect::<Vec<_>>(); // .into_iter();
+        for e in lp {
             self.evac_grid
                 .set_value_location(e, &Int2D { x: e.x, y: e.y })
         }
@@ -492,7 +506,7 @@ impl CellGrid {
     /// `fire_agent` - Agent that implements the Transition trait. Will be responsbilee for the fire spread
     ///
     pub fn fire_step(&mut self, fire_agent: &impl Transition, rng: &mut impl RngCore) {
-        let mut updated = Vec::new();
+        let mut updated = Vec::with_capacity((self.dim.0 * self.dim.1) as usize);
         for x in 0..self.dim.0 as i32 {
             for y in 0..self.dim.1 as i32 {
                 let mut n = Vec::with_capacity(8);
@@ -521,8 +535,39 @@ impl CellGrid {
             self.grid.set_value_location(cell, &pos);
         }
     }
-
-    
+    // pub fn fire_step(&mut self, fire_agent: &impl Transition, rng: &mut impl RngCore) {
+    //     // let mut updated = Vec::new();
+    //     // for x in 0..self.dim.0 as i32 {
+    //     //     for y in 0..self.dim.1 as i32 {
+    //     let updated = (0..self.dim.0 as i32)
+    //         .cartesian_product(0..self.dim.1 as i32)
+    //         .map(|(x, y)| {
+    //             let mut n = Vec::with_capacity(8);
+    //             let cell = self.grid.get_value(&Int2D { x, y }).unwrap();
+    //             for i in -1..=1 {
+    //                 for j in -1..=1 {
+    //                     if (i == 0 && j == 0)
+    //                         || !within_bounds(x + i, self.dim.0 as i32)
+    //                         || !within_bounds(y + j, self.dim.1 as i32)
+    //                     {
+    //                         continue;
+    //                     }
+    //                     n.push(self.grid.get_value(&Int2D { x: x + i, y: y + j }).unwrap())
+    //                 }
+    //             }
+    //             if cell.spread(fire_agent, &n[..], rng) {
+    //                 let loc = Int2D { x, y };
+    //                 self.fire_influence.on_step(&loc.into());
+    //                 // updated.push((loc, CellType::Fire));
+    //                 (loc, CellType::Fire)
+    //             } else {
+    //                 (Int2D { x, y }, cell)
+    //             }
+    //         });
+    //     for (pos, cell) in updated.into_iter() {
+    //         self.grid.set_value_location(cell, &pos);
+    //     }
+    // }
 }
 
 impl State for CellGrid {
@@ -548,7 +593,11 @@ impl State for CellGrid {
         self
     }
 
-    #[cfg(not(any(feature = "visualization", feature = "visualization_wasm",feature = "bayesian")))]
+    #[cfg(not(any(
+        feature = "visualization",
+        feature = "visualization_wasm",
+        feature = "bayesian"
+    )))]
     fn after_step(&mut self, schedule: &mut engine::schedule::Schedule) {
         use rand_distr::num_traits::Zero;
 
@@ -578,12 +627,9 @@ impl State for CellGrid {
             csv : true
         );
 
-
-        let coops = 
-            (self.output_vars.per_case_ratio_1 + self.output_vars.per_case_ratio_2) as f64;
-        let dom = 
-            self.output_vars.per_case_ratio_3 as f64;
-        if self.output_vars.per_case_ratio_3 != 0{
+        let coops = (self.output_vars.per_case_ratio_1 + self.output_vars.per_case_ratio_2) as f64;
+        let dom = self.output_vars.per_case_ratio_3 as f64;
+        if self.output_vars.per_case_ratio_3 != 0 {
             plot!(
                 "CaseRatioTime".to_owned(),
                 "series".to_owned(),
@@ -595,10 +641,9 @@ impl State for CellGrid {
 
         let f = RefCell::new(vec![]);
 
-        self.evac_grid
-            .iter_values_unbuffered(|_, e| {
-                f.borrow_mut().push(*e);
-            });
+        self.evac_grid.iter_values_unbuffered(|_, e| {
+            f.borrow_mut().push(*e);
+        });
         let f = f.take();
         let total_num = f.len();
         let coops = f
@@ -606,22 +651,14 @@ impl State for CellGrid {
             .filter(|s| s.strategy == Strategy::Cooperative)
             .count();
         let n = total_num as f32;
-        let sums = f.into_iter().fold((0.,0.,0.,0.),|(c,cq,d,dq) , EvacueeCell { pr_c, pr_d ,..}| {
-            (
-                c + pr_c,
-                cq + pr_c.powi(2),
-                d + pr_d,
-                dq + pr_d.powi(2)
-            )
-        });
+        let sums = f.into_iter().fold(
+            (0., 0., 0., 0.),
+            |(c, cq, d, dq), EvacueeCell { pr_c, pr_d, .. }| {
+                (c + pr_c, cq + pr_c.powi(2), d + pr_d, dq + pr_d.powi(2))
+            },
+        );
         if total_num != 0 {
-            let avgs = 
-            (
-                sums.0 / n,
-                sums.1 / n,
-                sums.2 / n,
-                sums.3 / n,
-            );
+            let avgs = (sums.0 / n, sums.1 / n, sums.2 / n, sums.3 / n);
             plot!(
                 "CoopFrequency".to_owned(),
                 "series".to_owned(),
@@ -668,8 +705,9 @@ impl State for CellGrid {
 
     #[cfg(any(feature = "bayesian"))]
     fn end_condition(&mut self, _schedule: &mut krabmaga::engine::schedule::Schedule) -> bool {
-        self.fire_influence.fire_area == (self.dim.0 * self.dim.1) as usize ||
-        self.initial_config.evac_num == self.death_handler.get_dead() + self.escape_handler.get_escaped().len()
+        self.fire_influence.fire_area == (self.dim.0 * self.dim.1) as usize
+            || self.initial_config.evac_num
+                == self.death_handler.get_dead() + self.escape_handler.get_escaped().len()
     }
 
     // Determine fire_out
@@ -681,7 +719,7 @@ impl State for CellGrid {
         self.escape_handler.reset();
         self.grid = DenseNumberGrid2D::new(self.dim.0 as i32, self.dim.1 as i32);
         self.evac_grid = DenseNumberGrid2D::new(self.dim.0 as i32, self.dim.1 as i32);
-        #[cfg(feature= "bayesian")]
+        #[cfg(feature = "bayesian")]
         {
             self.inp_handlers.reset();
         }
@@ -697,7 +735,7 @@ impl State for CellGrid {
         self.iteration += 1;
         let mut rng = krand::thread_rng();
         let mut holder = None;
-        let mut rng : &mut dyn RngCore = self.param_seed.map_or(&mut rng, |e| {
+        let mut rng: &mut dyn RngCore = self.param_seed.map_or(&mut rng, |e| {
             holder = Some(ChaChaRng::seed_from_u64(e));
             holder.as_mut().unwrap()
         });
@@ -707,7 +745,8 @@ impl State for CellGrid {
             spread: self.initial_config.fire_spread.unwrap_or_else(|| rng.gen()),
             id: 1,
         };
-        let evac_agent = EvacueeAgent { //TODO
+        let evac_agent = EvacueeAgent {
+            //TODO
             id: 2,
             lc: 0.5,
             ld: 0.5,
@@ -725,18 +764,17 @@ impl State for CellGrid {
 
     #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
     fn init(&mut self, schedule: &mut krabmaga::engine::schedule::Schedule) {
-
         self.iteration += 1;
         let mut rng = krand::thread_rng();
         let mut holder = None;
-        let mut rng : &mut dyn RngCore = self.param_seed.map_or(&mut rng, |e| {
+        let mut rng: &mut dyn RngCore = self.param_seed.map_or(&mut rng, |e| {
             holder = Some(ChaChaRng::seed_from_u64(e));
             holder.as_mut().unwrap()
         });
         self.reset();
         self.set_intial(&mut rng);
         let cnt = RefCell::new(0usize);
-        self.evac_grid.iter_values(|_,_| *cnt.borrow_mut() += 1);
+        self.evac_grid.iter_values(|_, _| *cnt.borrow_mut() += 1);
         // TODO Param seed implementation
         // Only thing really left to do is start generating resultsz\
         let fire_rules = FireRules {
@@ -745,8 +783,8 @@ impl State for CellGrid {
         };
         let agent = EvacueeAgent {
             id: 2,
-            lc: 0.5, 
-            ld: 0.5, 
+            lc: 0.5,
+            ld: 0.5,
         };
 
         // Update on the non visual feature does not copy between the state
@@ -759,77 +797,76 @@ impl State for CellGrid {
         // ================ PLOTS ================
         #[cfg(not(feature = "bayesian"))]
         {
-            
             addplot!(
                 "Escaped".to_owned(),
                 "Time step".to_owned(),
                 "Number of escaped evacuees".to_owned(),
                 csv : true
             );
-    
+
             addplot!(
                 "Death".to_owned(),
                 "Time step".to_owned(),
                 "Number of dead evacuees".to_owned(),
                 csv : true
             );
-    
+
             addplot!(// dont care
                 "AspirationArea".to_owned(),
                 "Fire Area".to_owned(),
                 "Escape Aspiration".to_owned(),
                 csv : true
             );
-    
+
             addplot!(// dont care
                 "RatioDistance".to_owned(),
                 "Distance".to_owned(),
                 "Ratio".to_owned(),
                 csv : true
             );
-    
+
             addplot!(// dont care
                 "RewardAspiration".to_owned(),
                 "Aspiration".to_owned(),
                 "Reward".to_owned(),
                 csv : true
             );
-    
+
             addplot!(
                 "CoopFrequency".to_owned(),
                 "Time".to_owned(),
                 "Frequency".to_owned(),
                 csv : true
             );
-            
+
             addplot!(
                 "AverageLearningCoop".to_owned(),
                 "Time".to_owned(),
                 "Avg".to_owned(),
                 csv : true
             );
-    
+
             addplot!(
                 "AverageLearningComp".to_owned(),
                 "Time".to_owned(),
                 "Avg".to_owned(),
                 csv : true
             );
-    
+
             addplot!(
                 "StdLearningCoop".to_owned(),
                 "Time".to_owned(),
                 "Std".to_owned(),
                 csv : true
             );
-    
+
             addplot!(
                 "StdLearningComp".to_owned(),
                 "Time".to_owned(),
                 "Std".to_owned(),
                 csv : true
             );
-    
+
             addplot!(
                 "RewardGameDistance".to_owned(),
                 "Distance".to_owned(),
@@ -845,7 +882,6 @@ impl State for CellGrid {
             )
         }
     }
-    
 }
 
 // #[cfg(all(test, any(feature = "visualization", feature = "visualization_wasm")))]
@@ -1160,7 +1196,6 @@ impl State for CellGrid {
 //         mod diretion_tests {}
 //     }
 // }
-
 
 // // #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
 //     // pub fn fire_step(&mut self, fire_agent: &impl Transition, rng: &mut impl RngCore) {

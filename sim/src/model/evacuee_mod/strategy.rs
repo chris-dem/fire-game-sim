@@ -16,8 +16,13 @@ pub enum RuleCase {
 pub type RSTP = (f32, f32, f32, f32);
 
 #[inline]
-pub fn strategy_rewards(n: usize, r_t: f32, b : f32) -> RSTP {
-  (b / n as f32, 0., b * (1. - r_t / n as f32), - b * r_t / n as f32)
+pub fn strategy_rewards(n: usize, r_t: f32, b: f32) -> RSTP {
+    (
+        b / n as f32,
+        0.,
+        b * (1. - r_t / n as f32),
+        -b * r_t / n as f32,
+    )
 }
 
 #[inline]
@@ -40,15 +45,22 @@ pub fn rules(
     mut competing: Vec<(RSTP, EvacueeCell)>,
     rng: &mut impl RngCore,
     asp: f32,
-) -> Result<Vec<(f32, EvacueeCell)>, Vec<(f32, EvacueeCell)>> {
+    // ) -> Result<Vec<(f32, EvacueeCell)>, Vec<(f32, EvacueeCell)>> {
+) -> Result<
+    Box<dyn Iterator<Item = (f32, EvacueeCell)>>,
+    Box<dyn Iterator<Item = (f32, EvacueeCell)>>,
+> {
+    // let asp = asp;
     match game_rules {
         RuleCase::AllCoop => {
             // if everyone is cooperating randomly shuffle the list
             competing.shuffle(&mut *rng.borrow_mut());
-            Ok(competing
-                .into_iter()
-                .map(|(rstp, e)| (s_x(rstp, asp, rstp.0), e))
-                .collect::<Vec<_>>())
+            Ok(Box::new(
+                competing
+                    .into_iter()
+                    .map(move |(rstp, e)| (s_x(rstp, asp, rstp.0), e)), // .collect::<Vec<_>>())
+                                                                        // .into_iter(),
+            ))
         } // any will do
         RuleCase::AllButOneCoop => {
             // put the competitive guy first and the rest second
@@ -57,29 +69,29 @@ pub fn rules(
                 (_, Strategy::Competitive) => std::cmp::Ordering::Greater,
                 _ => std::cmp::Ordering::Equal,
             });
-            Ok(competing
-                .into_iter()
-                .map(|(w, el)| {
+            Ok(Box::new(
+                competing.into_iter().map(move |(w, el)| {
                     let ret_w = if el.strategy == Strategy::Competitive {
                         w.2
                     } else {
                         w.1
                     };
                     (s_x(w, asp, ret_w), el)
-                })
-                .collect())
+                }), // .into_iter(),
+            ))
+            // .collect())
         }
-        RuleCase::Argument => Err(competing
-            .into_iter()
-            .map(|(w, el)| {
+        RuleCase::Argument => Err(Box::new(
+            competing.into_iter().map(move |(w, el)| {
                 let retw = if el.strategy == Strategy::Competitive {
                     w.3
-                }else {
+                } else {
                     0.
                 };
                 (s_x(w, asp, retw), el)
-            })
-            .collect()),
+            }), // .into_iter(),
+        )),
+        // .collect()),
     }
 }
 
@@ -152,6 +164,7 @@ mod tests {
     }
 
     mod rule_tests {
+        use itertools::Itertools;
         use rand::SeedableRng;
         use rand_chacha::ChaChaRng;
 
@@ -184,7 +197,10 @@ mod tests {
                     },
                 ),
             ];
-            let res = rules(game_rules, competing.clone(), &mut rng, asp).unwrap();
+            let res = rules(game_rules, competing.clone(), &mut rng, asp)
+                .ok()
+                .unwrap()
+                .collect_vec();
             let expected = vec![-0.33333334, -0.33333334];
             assert!(expected
                 .into_iter()
@@ -219,7 +235,10 @@ mod tests {
                     },
                 ),
             ];
-            let res = rules(game_rules, competing.clone(), &mut rng, asp).unwrap();
+            let res = rules(game_rules, competing.clone(), &mut rng, asp)
+                .ok()
+                .unwrap()
+                .collect_vec();
             let expected = vec![-1., -0.88888896];
             assert!(expected
                 .into_iter()
@@ -254,7 +273,10 @@ mod tests {
                     },
                 ),
             ];
-            let res = dbg!(rules(game_rules, competing.clone(), &mut rng, asp).unwrap_err());
+            let res = dbg!(rules(game_rules, competing.clone(), &mut rng, asp)
+                .err()
+                .unwrap()
+                .collect_vec());
             let expected = vec![1., 0.22222228];
             assert!(expected
                 .into_iter()
