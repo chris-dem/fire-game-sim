@@ -13,7 +13,8 @@ use crate::model::{
         static_influence::{ExitInfluence, StaticInfluence},
         strategies::{
             aspiration_strategy::{AspirationStrategy, LogAspManip, RootAsp},
-            ratio_strategy::{RatioStrategy, RootDist, LogDist, IDdist}, reward_strategy::{RewardStrategy, InverseLogRoot, RootReward},
+            ratio_strategy::{IDdist, LogDist, RatioStrategy, RootDist},
+            reward_strategy::{InverseLogRoot, RewardStrategy, RootReward},
         },
     },
     // file_handling::file_handler::FileHandler,
@@ -85,14 +86,14 @@ impl ToSimulationStruct for RatioInput {
 
     fn to_struct(&self, rng: &mut dyn RngCore, _params: &Self::P) -> Self::T {
         match self {
-            RatioInput::Root(e) =>{
+            RatioInput::Root(e) => {
                 let e = e.unwrap_or_else(|| rng.gen());
                 Box::new(RootDist(e))
-            },
+            }
             RatioInput::Log(e) => {
                 let e = e.unwrap_or_else(|| rng.gen());
                 Box::new(LogDist(e))
-            },
+            }
             RatioInput::Id(e) => {
                 let e = e.unwrap_or_else(|| rng.gen());
                 Box::new(IDdist(e))
@@ -104,19 +105,19 @@ impl ToSimulationStruct for RatioInput {
 impl ToSimulationStruct for RewardGameInput {
     type T = Box<dyn RewardStrategy + Send>;
 
-    type P = (f32,f32);
+    type P = (f32, f32);
 
     fn to_struct(&self, rng: &mut dyn RngCore, params: &Self::P) -> Self::T {
         match self {
-            Self::InvLogRoot(e) =>{
+            Self::InvLogRoot(e) => {
                 let e = e.unwrap_or_else(|| rng.gen());
-                Box::new(InverseLogRoot(e,10.0f32.ln_1p()))
-            },
-            Self::RewardRoot(e) =>{
+                Box::new(InverseLogRoot(e, 10.0f32.ln_1p()))
+            }
+            Self::RewardRoot(e) => {
                 let e = e.unwrap_or_else(|| rng.gen());
-                let max_dist = (params.0.powi(2) +  params.1.powi(2)).sqrt();
-                Box::new(RootReward(e,max_dist))
-            },
+                let max_dist = (params.0.powi(2) + params.1.powi(2)).sqrt();
+                Box::new(RootReward(e, max_dist))
+            }
         }
     }
 }
@@ -124,7 +125,7 @@ impl ToSimulationStruct for RewardGameInput {
 impl ToSimulationStruct for FireInput {
     type T = FireInfluence;
 
-    type P = (usize,usize);
+    type P = (usize, usize);
 
     fn to_struct(&self, rng: &mut dyn RngCore, params: &Self::P) -> Self::T {
         FireInfluence {
@@ -137,7 +138,9 @@ impl ToSimulationStruct for FireInput {
             aspiration: self.aspiration.to_struct(rng, &()),
             movement: self.movement.to_struct(rng, &()),
             ratio: self.ratio.to_struct(rng, &()),
-            reward_game : self.reward_game.to_struct(rng, &(params.0 as f32, params.1 as f32)),
+            reward_game: self
+                .reward_game
+                .to_struct(rng, &(params.0 as f32, params.1 as f32)),
         }
     }
 }
@@ -149,15 +152,17 @@ impl ToSimulationStruct for Setup {
 
     type P = (i32, i32); // w ,h
 
-    fn to_struct(&self, _rng: &mut dyn RngCore, _params: &Self::P) -> Self::T {
+    fn to_struct(&self, _rng: &mut dyn RngCore, params: &Self::P) -> Self::T {
         InitialConfig {
             initial_grid: self.initial_fire,
             initial_evac_grid: self.initial_evac.clone(),
             fire_spread: self.fire_spread,
             map_seed: self.map_seed,
-            evac_num: self.evac_number,
-            lc : self.lc,
-            ld : self.ld,
+            evac_num: self
+                .evac_number
+                .unwrap_or((params.0 as f32 * params.1 as f32 * 0.085) as usize),
+            lc: self.lc,
+            ld: self.ld,
         }
     }
 }
@@ -199,7 +204,9 @@ impl ToSimulationStruct for StaticInput {
 
     fn to_struct(&self, rng: &mut dyn RngCore, params: &Self::P) -> Self::T {
         let p = match self {
-            StaticInput::ClosestToExit(f) =>  ExitInfluence::new(f.unwrap_or_else(|| rng.gen()), params),
+            StaticInput::ClosestToExit(f) => {
+                ExitInfluence::new(f.unwrap_or_else(|| rng.gen()), params)
+            }
         };
         Box::new(p)
     }
@@ -221,7 +228,7 @@ impl ToSimulationStruct for ImportImproved {
             grid: DenseNumberGrid2D::new(w as i32, h as i32),
             evac_grid: DenseNumberGrid2D::new(w as i32, h as i32),
             dim: self.dim,
-            param_seed : self.param_seed,
+            param_seed: self.param_seed,
             initial_config: self.setup.to_struct(rng, &(w as i32, h as i32)),
             fire_influence: self.fire.to_struct(rng, &(w as usize, h as usize)),
             escape_handler: self.escape.to_struct(rng, &Loc(w as i32 / 2, h as i32)),

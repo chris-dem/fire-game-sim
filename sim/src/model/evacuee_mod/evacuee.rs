@@ -1,4 +1,3 @@
-
 use super::fire_influence::fire_influence::FireInfluence;
 use super::strategy::Strategy;
 use super::{evacuee_cell::EvacueeCell, static_influence::StaticInfluence};
@@ -40,40 +39,36 @@ impl EvacueeAgent {
             .map(|cs| {
                 let d = fire_infl.get_movement_influence(&cs);
                 let s = static_st.static_influence(&Int2D::from(*cs));
-                (-s + d).exp()
+                let result = -s + d;
+                let sign = result.signum();
+                (result.abs().sqrt() * sign).exp() // Use sqrt since long distances can skyrocket the exponetial value
             })
             .collect_vec();
-        // dbg!(fire_infl.)
         let s: f32 = all.iter().sum();
         all.into_iter().map(|el| el / s).collect_vec()
     }
 
-
-
-    pub fn calculate_strategies(
-        &self,
-        evac : &mut EvacueeCell,
-        rng : &mut dyn RngCore,
-        stim: f32,
-    ){
+    pub fn calculate_strategies(&self, evac: &mut EvacueeCell, rng: &mut dyn RngCore, stim: f32) {
         match evac.strategy {
-            Strategy::Competitive => { // ADOPT FOR COOP
+            Strategy::Competitive => {
+                // ADOPT FOR COOP
                 evac.pr_d = calc_prob(evac.pr_d, self.ld, stim);
                 if !rng.gen_bool(evac.pr_d as f64) {
                     evac.strategy = Strategy::Cooperative;
                 }
-            },
-            Strategy::Cooperative => { // ADOPT FOR COOP
+            }
+            Strategy::Cooperative => {
+                // ADOPT FOR COOP
                 evac.pr_c = calc_prob(evac.pr_c, self.lc, stim);
                 if !rng.gen_bool(evac.pr_c as f64) {
                     evac.strategy = Strategy::Competitive;
                 }
-            }, 
+            }
         }
     }
 }
 
-fn calc_prob(prob : f32, learning : f32, stim : f32) -> f32 {
+fn calc_prob(prob: f32, learning: f32, stim: f32) -> f32 {
     if stim.is_sign_positive() {
         prob + (1. - prob) * learning * stim
     } else {

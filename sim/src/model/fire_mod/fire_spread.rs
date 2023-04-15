@@ -2,13 +2,14 @@ use core::fmt;
 use krabmaga::engine::{agent::Agent, schedule::Schedule, state::State};
 use std::hash::{Hash, Hasher};
 
-use crate::model::{fire_mod::fire_cell::CellType, state::CellGrid};
+use crate::model::{fire_mod::fire_cell::CellType, misc::misc_func::Loc, state::CellGrid};
 use krabmaga::rand as krand;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct FireRules {
     pub id: u32,
     pub spread: f32,
+    pub fire_grid: Vec<CellType>,
 }
 
 impl Agent for FireRules {
@@ -29,6 +30,17 @@ impl FireRules {
         _schedule: &mut Schedule,
         _schedule_id: u32,
     ) {
+    }
+
+    pub fn new(dims: usize, id: u32, spread: f32, location: usize) -> Self {
+        let mut fire_grid = vec![CellType::Empty; dims];
+        fire_grid[location] = CellType::Fire;
+        fire_grid.shrink_to_fit();
+        Self {
+            id,
+            spread,
+            fire_grid,
+        }
     }
 }
 

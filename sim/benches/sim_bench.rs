@@ -10,7 +10,7 @@ use sim::model::{search::InputSearch, state::CellGrid};
 pub mod perf;
 
 fn sim_bench(c: &mut Criterion) {
-    let n = 31;
+    let n = 51;
     let mut state = CellGrid::new_training(
         InputSearch {
             lc: 0.3 as f32,

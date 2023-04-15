@@ -25,7 +25,7 @@ itertools = "0.10.5"
 # krabmaga = "0.2.*"
 krabmaga = {git = "https://github.com/krABMaga/krABMaga"}
 mockall = "0.11.3"
-rand = "0.8.5"
+rand = { version = "0.8.5", features = ["small_rng"] }
 rand_chacha = "0.3.1"
 rand_derive2 = "0.1.18"
 rand_distr = "0.4.3"
@@ -33,12 +33,13 @@ serde = { version = "1.0.152", features = ["serde_derive", "derive"] }
 serde_json = "1.0.91"
 
 [features]
-default = ["search", "bayesian"]
+default = ["bayesian"]
 visualization = ["krabmaga/visualization"]
 visualization_wasm = ["krabmaga/visualization_wasm"]
 bayesian = ["krabmaga/bayesian"]
 search = []
+ga_search = []
 
-[dev-dependencies]
-criterion = { version = "0.4.0", features = ["html_reports"] }
-pprof = { version = "0.11.1", features = ["flamegraph"] }
+# [target.'cfg(not(windows))'.dev-dependencies]
+# criterion = { version = "0.4.0", features = ["html_reports"] }
+# pprof = { version = "0.11.1", features = ["flamegraph"] }

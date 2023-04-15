@@ -8,12 +8,9 @@ use super::{
 
 pub trait EscapeHandler<T>: Reset {
     fn escaped(&mut self, evac: EvacueeCell, step: usize);
-
     fn get_escaped(&self) -> Vec<T>;
     fn get_escaped_number(&self) -> usize;
-
     fn is_exit(&self, loc: &Loc) -> bool;
-
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -66,5 +63,58 @@ impl EscapeHandler<EvacTime> for TimeEscape {
     fn get_escaped_number(&self) -> usize {
         self.escaped_evac.len()
     }
+}
 
+#[cfg(test)]
+mod tests {
+    use krabmaga::engine::location::Int2D;
+
+    use rand::prelude::*;
+
+    use crate::model::{evacuee_mod::evacuee_cell::EvacueeCell, misc::misc_func::Loc};
+
+    use super::{EscapeHandler, TimeEscape};
+
+    #[test]
+    fn escape_handler_create() {
+        let height = 51;
+        let width = 51;
+        let time = TimeEscape {
+            exit: Int2D {
+                x: width / 2,
+                y: height,
+            },
+            ..Default::default()
+        };
+        assert!(time.escaped_evac.is_empty());
+        assert_eq!(
+            Into::<Loc>::into(time.exit),
+            Into::<Loc>::into(Int2D { x: 25, y: 51 }),
+        );
+    }
+
+    #[test]
+    fn escaped_handler_non_escape() {
+        let mut time_escape = TimeEscape::default();
+        let mut rng = thread_rng();
+        let step = 5;
+        let cell = EvacueeCell {
+            strategy: rng.gen(),
+            x: 30,
+            y: 30,
+            pr_c: rng.gen(),
+            pr_d: rng.gen(),
+        };
+        time_escape.escaped(cell.clone(), step);
+        assert_eq!(time_escape.escaped_evac[0].loc, cell);
+    }
+
+    #[test]
+    fn escaped_check_exit() {
+        let time_escape = TimeEscape {
+            exit: Int2D { x: 25, y: 51 },
+            ..Default::default()
+        };
+        assert!(time_escape.is_exit(&Loc(25, 51)))
+    }
 }

@@ -1,5 +1,4 @@
 use crate::model::fire_mod::fire_cell::*;
-use crate::model::misc::misc_func::round;
 use itertools::Itertools;
 use krabmaga::cfg_if::cfg_if;
 use krabmaga::engine::fields::field::Field;
@@ -13,9 +12,8 @@ use rand::prelude::*;
 use rand::RngCore;
 use rand_chacha::ChaChaRng;
 use serde::Deserialize;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
-use std::process::Output;
 
 use super::death::{Announcer, DeathHandler};
 use super::escape::{EscapeHandler, EvacTime, TimeEscape};
@@ -36,9 +34,9 @@ use super::transition::Transition;
 use crate::model::fire_mod::fire_spread::FireRules;
 
 /// Default Height of the room. Plus 1 for wall
-pub const DEFAULT_HEIGHT: u32 = 21;
+pub const DEFAULT_HEIGHT: u32 = 51;
 /// Default Width of the room. Plus 1 for wall
-pub const DEFAULT_WIDTH: u32 = 21;
+pub const DEFAULT_WIDTH: u32 = 51;
 
 /// Initial Configuration of the simulation struct. Will be used to import the map or any other additional information
 /// such as parameters
@@ -59,136 +57,164 @@ pub enum SimType {
     Total,
 }
 
-cfg_if! {
-    if #[cfg(feature = "bayesian")] {
-        /// Grid in which the simulation will be running on
-        /// The way the simulation will work is to imploy an external agent in which he will take control of the cells in the simulation.
-        ///
-        /// Holds current step size, grid, dimensions and initial configuration
-        pub struct CellGrid {
-            pub simulation_type: SimType,
-            pub iteration: u16,
-            pub step: u64,
-            pub param_seed : Option<u64>,
-            pub grid: DenseNumberGrid2D<CellType>,
-            pub evac_grid: DenseNumberGrid2D<EvacueeCell>,
-            pub dim: (u32, u32),
-            pub initial_config: InitialConfig,
-            pub fire_influence: FireInfluence,
-            pub escape_handler: Box<dyn EscapeHandler<EvacTime> + Send>,
-            pub death_handler: Box<dyn DeathHandler + Send>,
-            pub static_influence: Box<dyn StaticInfluence + Send>,
-            pub inp_handlers : Handlers,
-            pub output_vars : OutputVariables,
+// cfg_if! {
+//     if #[cfg(any(feature = "bayesian", feature = "ga_search"))] {
+/// Grid in which the simulation will be running on
+/// The way the simulation will work is to imploy an external agent in which he will take control of the cells in the simulation.
+///
+/// Holds current step size, grid, dimensions and initial configuration
+pub struct CellGrid {
+    pub simulation_type: SimType,
+    pub iteration: u16,
+    pub step: u64,
+    pub param_seed: Option<u64>,
+    pub grid: DenseNumberGrid2D<CellType>,
+    pub evac_grid: DenseNumberGrid2D<EvacueeCell>,
+    pub dim: (u32, u32),
+    pub initial_config: InitialConfig,
+    pub fire_influence: FireInfluence,
+    pub escape_handler: Box<dyn EscapeHandler<EvacTime> + Send>,
+    pub death_handler: Box<dyn DeathHandler + Send>,
+    pub static_influence: Box<dyn StaticInfluence + Send>,
+    // pub inp_handlers : Handlers,
+    pub output_vars: OutputVariables,
+}
+impl Default for CellGrid {
+    fn default() -> Self {
+        Self {
+            step: 0,
+            iteration: 0,
+            simulation_type: SimType::Total,
+            grid: DenseNumberGrid2D::new(DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
+            evac_grid: DenseNumberGrid2D::new(DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
+            dim: (DEFAULT_WIDTH, DEFAULT_HEIGHT),
+            initial_config: Default::default(),
+            static_influence: Box::new(ExitInfluence::default()),
+            death_handler: Box::new(Announcer::default()),
+            escape_handler: Box::new(TimeEscape::default()),
+            fire_influence: Default::default(),
+            param_seed: None,
+            // inp_handlers : Default::default(),
+            output_vars: Default::default(),
         }
-        impl Default for CellGrid {
-                fn default() -> Self {
-                    Self {
-                        step: 0,
-                        iteration: 0,
-                        simulation_type: SimType::Total,
-                        grid: DenseNumberGrid2D::new(DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
-                        evac_grid: DenseNumberGrid2D::new(DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
-                        dim: (DEFAULT_WIDTH, DEFAULT_HEIGHT),
-                        initial_config: Default::default(),
-                        static_influence: Box::new(ExitInfluence::default()),
-                        death_handler: Box::new(Announcer::default()),
-                        escape_handler: Box::new(TimeEscape::default()),
-                        fire_influence: Default::default(),
-                        param_seed : None,
-                        inp_handlers : Default::default(),
-                        output_vars : Default::default(),
-                    }
-                }
-            }
-        impl CellGrid {
-            pub fn new_training(search : InputSearch, nw : u32, nh : u32) -> Self{
-                // let nw = DEFAULT_WIDTH;
-                // let nh = DEFAULT_HEIGHT;
-                let lc = search.lc;
-                let ld = search.ld;
-                let fire_spread = 0.2;
-                let asp_def = search.asp_infl;
-                let static_infl = search.static_infl;
-                let reward_r = search.reward_infl;
-                let root_r = search.rat_infl;
-                Self {
-                    grid: DenseNumberGrid2D::new( nw as i32, nh as i32),
-                    evac_grid: DenseNumberGrid2D::new(nw as i32, nh as i32),
-                    dim : (nw,nh),
-                    initial_config : InitialConfig {
-                        evac_num : ((nw * nh ) as f32 * 0.1) as usize,
-                        lc : Some(lc),
-                        ld : Some(ld),
-                        fire_spread : Some(fire_spread),
-                        ..Default::default()
-                    },
-                    fire_influence : FireInfluence {
-                        fire_state : Box::new(Frontier::new(nw as usize)),
-                        aspiration : Box::new(LogAspManip(asp_def)),
-                        movement : Box::new(ClosestDistance(search.dynamc_infl)),
-                        reward_game: Box::new(RootReward(reward_r,((nw * nw) as f32 + (nh * nh) as f32).sqrt())),
-                        ratio : Box::new(RootDist(root_r)),
-                        ..Default::default()
-                    },
-                    static_influence: Box::new(ExitInfluence::new(static_infl, &Loc(nw as i32 / 2, nh as i32)) ),
-                    ..Default::default()
-
-                }
-            }
+    }
+}
+impl CellGrid {
+    #[allow(dead_code)]
+    pub fn new_with_parameters(_r: usize, dna: &str) -> Self {
+        let search = InputSearch::from_string_vec(dna.split(";").map(|c| c.into()).collect_vec());
+        Self::new_training(search, DEFAULT_WIDTH, DEFAULT_HEIGHT)
+    }
+    pub fn new_training(search: InputSearch, nw: u32, nh: u32) -> Self {
+        // let nw = DEFAULT_WIDTH;
+        // let nh = DEFAULT_HEIGHT;
+        let lc = search.lc;
+        let ld = search.ld;
+        let fire_spread = 0.2;
+        let asp_def = search.asp_infl;
+        let static_infl = search.static_infl;
+        let reward_r = search.reward_infl;
+        let root_r = search.rat_infl;
+        Self {
+            grid: DenseNumberGrid2D::new(nw as i32, nh as i32),
+            evac_grid: DenseNumberGrid2D::new(nw as i32, nh as i32),
+            dim: (nw, nh),
+            initial_config: InitialConfig {
+                evac_num: ((nw * nh) as f32 * 0.1) as usize,
+                lc: Some(lc),
+                ld: Some(ld),
+                fire_spread: Some(fire_spread),
+                ..Default::default()
+            },
+            fire_influence: FireInfluence {
+                fire_state: Box::new(Frontier::new(nw as usize)),
+                aspiration: Box::new(LogAspManip(asp_def)),
+                movement: Box::new(ClosestDistance(search.dynamc_infl)),
+                reward_game: Box::new(RootReward(
+                    reward_r,
+                    ((nw * nw) as f32 + (nh * nh) as f32).sqrt(),
+                )),
+                ratio: Box::new(RootDist(root_r)),
+                ..Default::default()
+            },
+            static_influence: Box::new(ExitInfluence::new(
+                static_infl,
+                &Loc(nw as i32 / 2, nh as i32),
+            )),
+            ..Default::default()
         }
-    }else {
-        /// Grid in which the simulation will be running on
-        /// The way the simulation will work is to imploy an external agent in which he will take control of the cells in the simulation.
-        ///
-        /// Holds current step size, grid, dimensions and initial configuration
-        pub struct CellGrid {
-            pub simulation_type: SimType,
-            pub iteration: u16,
-            pub step: u64,
-            pub param_seed : Option<u64>,
-            pub grid: DenseNumberGrid2D<CellType>,
-            pub evac_grid: DenseNumberGrid2D<EvacueeCell>,
-            pub dim: (u32, u32),
-            pub initial_config: InitialConfig,
-            pub fire_influence: FireInfluence,
-            pub escape_handler: Box<dyn EscapeHandler<EvacTime> + Send>,
-            pub death_handler: Box<dyn DeathHandler + Send>,
-            pub static_influence: Box<dyn StaticInfluence + Send>,
-            pub output_vars : OutputVariables,
-        }
-        impl Default for CellGrid {
-            fn default() -> Self {
-                Self {
-                    step: 0,
-                    iteration: 0,
-                    simulation_type: SimType::Total,
-                    grid: DenseNumberGrid2D::new(DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
-                    evac_grid: DenseNumberGrid2D::new(DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
-                    dim: (DEFAULT_WIDTH, DEFAULT_HEIGHT),
-                    initial_config: Default::default(),
-                    static_influence: Box::new(ExitInfluence::default()),
-                    death_handler: Box::new(Announcer::default()),
-                    escape_handler: Box::new(TimeEscape::default()),
-                    fire_influence: Default::default(),
-                    param_seed : None,
-                    output_vars  : Default::default(),
-                }
-            }
-        }
+    }
+}
+// }
+//     else {
+//         /// Grid in which the simulation will be running on
+//         /// The way the simulation will work is to imploy an external agent in which he will take control of the cells in the simulation.
+//         ///
+//         /// Holds current step size, grid, dimensions and initial configuration
+//         pub struct CellGrid {
+//             pub simulation_type: SimType,
+//             pub iteration: u16,
+//             pub step: u64,
+//             pub param_seed : Option<u64>,
+//             pub grid: DenseNumberGrid2D<CellType>,
+//             pub evac_grid: DenseNumberGrid2D<EvacueeCell>,
+//             pub dim: (u32, u32),
+//             pub initial_config: InitialConfig,
+//             pub fire_influence: FireInfluence,
+//             pub escape_handler: Box<dyn EscapeHandler<EvacTime> + Send>,
+//             pub death_handler: Box<dyn DeathHandler + Send>,
+//             pub static_influence: Box<dyn StaticInfluence + Send>,
+//             pub output_vars : OutputVariables,
+//         }
+//         impl Default for CellGrid {
+//             fn default() -> Self {
+//                 Self {
+//                     step: 0,
+//                     iteration: 0,
+//                     simulation_type: SimType::Total,
+//                     grid: DenseNumberGrid2D::new(DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
+//                     evac_grid: DenseNumberGrid2D::new(DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
+//                     dim: (DEFAULT_WIDTH, DEFAULT_HEIGHT),
+//                     initial_config: Default::default(),
+//                     static_influence: Box::new(ExitInfluence::default()),
+//                     death_handler: Box::new(Announcer::default()),
+//                     escape_handler: Box::new(TimeEscape::default()),
+//                     fire_influence: Default::default(),
+//                     param_seed : None,
+//                     output_vars  : Default::default(),
+//                 }
+//             }
+//         }
 
+//     }
+// }
 
-
+impl fmt::Display for CellGrid {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let sm: u64 = self.output_vars.per_case_ratio_1
+            + self.output_vars.per_case_ratio_2
+            + self.output_vars.per_case_ratio_3;
+        let n = self.initial_config.evac_num as f64;
+        let alive_vec = self.escape_handler.get_escaped_number() as f64 / n;
+        let case_all = self.output_vars.per_case_ratio_1 as f64 / sm as f64;
+        let case_one = self.output_vars.per_case_ratio_2 as f64 / sm as f64;
+        let case_none = self.output_vars.per_case_ratio_3 as f64 / sm as f64;
+        write!(
+            f,
+            "(Alive number : {}) (Case 1 : {} ) (Case 2 : {}) (Case 3 : {})",
+            alive_vec, case_all, case_one, case_none
+        )
     }
 }
 
+#[inline]
 pub fn within_bounds(val: i32, limit: i32) -> bool {
     val >= 0 && val < limit
 }
 
 impl CellGrid {
     /// Apply InitialConfiguration to the grid
-    pub fn set_intial(&mut self, rng: &mut dyn RngCore) {
+    pub fn set_intial(&mut self, rng: &mut dyn RngCore) -> (i32, i32) {
         let mut seed_rng = None;
         let rng = self.initial_config.map_seed.map_or(rng, |c| {
             seed_rng = Some(rand_chacha::ChaCha8Rng::seed_from_u64(c));
@@ -257,6 +283,7 @@ impl CellGrid {
             self.evac_grid
                 .set_value_location(*e, &Int2D { x: e.x, y: e.y })
         }
+        fire_start
     }
 
     pub fn get_neigh(&self, x: i32, y: i32) -> Vec<Loc> {
@@ -353,7 +380,7 @@ impl CellGrid {
                 &self.fire_influence,
             );
             // dbg!(&weights);
-            let dist = WeightedIndex::new(weights).unwrap();
+            let dist = WeightedIndex::new(&weights).expect("Weights are not valid");
             let opted_dist = empty_cells[dist.sample(*rng.borrow_mut())];
             if self.escape_handler.is_exit(&opted_dist) {
                 // self.escape_handler.escaped(*val, self.step as usize);
@@ -398,7 +425,8 @@ impl CellGrid {
         #[cfg(not(any(
             feature = "visualization",
             feature = "visualization_wasm",
-            feature = "bayesian"
+            feature = "bayesian",
+            feature = "ga_search"
         )))]
         {
             let reward_b = self
@@ -468,7 +496,8 @@ impl CellGrid {
             #[cfg(not(any(
                 feature = "visualization",
                 feature = "visualization_wasm",
-                feature = "bayesian"
+                feature = "bayesian",
+                feature = "ga_search"
             )))]
             {
                 plot!(
@@ -505,34 +534,42 @@ impl CellGrid {
     /// # Arguments
     /// `fire_agent` - Agent that implements the Transition trait. Will be responsbilee for the fire spread
     ///
-    pub fn fire_step(&mut self, fire_agent: &impl Transition, rng: &mut impl RngCore) {
-        let mut updated = Vec::with_capacity((self.dim.0 * self.dim.1) as usize);
-        for x in 0..self.dim.0 as i32 {
-            for y in 0..self.dim.1 as i32 {
-                let mut n = Vec::with_capacity(8);
-                let cell = self.grid.get_value(&Int2D { x, y }).unwrap();
-                for i in -1..=1 {
-                    for j in -1..=1 {
-                        if (i == 0 && j == 0)
-                            || !within_bounds(x + i, self.dim.0 as i32)
-                            || !within_bounds(y + j, self.dim.1 as i32)
-                        {
-                            continue;
-                        }
-                        n.push(self.grid.get_value(&Int2D { x: x + i, y: y + j }).unwrap())
+    pub fn fire_step(&mut self, fire_agent: &mut impl Transition, rng: &mut impl RngCore) {
+        // let mut updated = Vec::with_capacity((self.dim.0 * self.dim.1) as usize);
+        for idx in 0..(self.dim.0 * self.dim.1) as usize {
+            let x = (idx as u32 / self.dim.1) as i32;
+            let y = (idx as u32 % self.dim.1) as i32;
+            // let cell = fire_agentgrid.get_value(&Int2D { x, y }).unwrap();
+            let cell = fire_agent.handle_grid()[idx];
+            let mut cnt = 0usize;
+            for i in -1..=1 {
+                for j in -1..=1 {
+                    if (i == 0 && j == 0)
+                        || !within_bounds(x + i, self.dim.0 as i32)
+                        || !within_bounds(y + j, self.dim.1 as i32)
+                    {
+                        continue;
+                    }
+                    // n.push(self.grid.get_value(&Int2D { x: x + i, y: y + j }).unwrap())
+                    if let CellType::Fire =
+                        // self.grid.get_value(&Int2D { x: x + i, y: y + j }).unwrap()
+                        fire_agent.handle_grid()
+                            [((x + i) * self.dim.1 as i32 + y + j) as usize]
+                    {
+                        cnt += 1;
                     }
                 }
-                if cell.spread(fire_agent, &n[..], rng) {
-                    let loc = Int2D { x, y };
-                    updated.push((loc, CellType::Fire));
-                    self.fire_influence.on_step(&loc.into());
-                } else {
-                    updated.push((Int2D { x, y }, cell));
-                }
             }
-        }
-        for (pos, cell) in updated.into_iter() {
-            self.grid.set_value_location(cell, &pos);
+            let loc = Int2D { x, y };
+            // if cell.spread(fire_agent, &n[..], rng) {
+            if cell.spread_with_number(fire_agent, cnt, rng) {
+                self.fire_influence.on_step(&loc.into());
+                self.grid.set_value_location(CellType::Fire, &loc);
+                fire_agent.handle_grid()[idx] = CellType::Fire;
+            } else {
+                fire_agent.handle_grid()[idx] = cell;
+                self.grid.set_value_location(cell, &loc);
+            }
         }
     }
     // pub fn fire_step(&mut self, fire_agent: &impl Transition, rng: &mut impl RngCore) {
@@ -596,7 +633,8 @@ impl State for CellGrid {
     #[cfg(not(any(
         feature = "visualization",
         feature = "visualization_wasm",
-        feature = "bayesian"
+        feature = "bayesian",
+        feature = "ga_search"
     )))]
     fn after_step(&mut self, schedule: &mut engine::schedule::Schedule) {
         use rand_distr::num_traits::Zero;
@@ -703,7 +741,8 @@ impl State for CellGrid {
         self.output_vars.per_case_ratio_3 = 0;
     }
 
-    #[cfg(any(feature = "bayesian"))]
+    #[cfg(any(feature = "bayesian", feature = "ga_search"))]
+
     fn end_condition(&mut self, _schedule: &mut krabmaga::engine::schedule::Schedule) -> bool {
         self.fire_influence.fire_area == (self.dim.0 * self.dim.1) as usize
             || self.initial_config.evac_num
@@ -719,10 +758,6 @@ impl State for CellGrid {
         self.escape_handler.reset();
         self.grid = DenseNumberGrid2D::new(self.dim.0 as i32, self.dim.1 as i32);
         self.evac_grid = DenseNumberGrid2D::new(self.dim.0 as i32, self.dim.1 as i32);
-        #[cfg(feature = "bayesian")]
-        {
-            self.inp_handlers.reset();
-        }
         self.output_vars.per_case_ratio_1 = 0;
         self.output_vars.per_case_ratio_2 = 0;
         self.output_vars.per_case_ratio_3 = 0;
@@ -772,19 +807,25 @@ impl State for CellGrid {
             holder.as_mut().unwrap()
         });
         self.reset();
-        self.set_intial(&mut rng);
+        let (x, y) = self.set_intial(&mut rng);
         let cnt = RefCell::new(0usize);
         self.evac_grid.iter_values(|_, _| *cnt.borrow_mut() += 1);
         // TODO Param seed implementation
         // Only thing really left to do is start generating resultsz\
-        let fire_rules = FireRules {
-            spread: self.initial_config.fire_spread.unwrap_or_else(|| rng.gen()),
-            id: 1,
-        };
+        let fire_rules = FireRules::new(
+            self.dim.1 as usize * self.dim.0 as usize,
+            1,
+            self.initial_config.fire_spread.unwrap_or_else(|| rng.gen()),
+            (x as u32 * self.dim.1 + y as u32) as usize,
+        );
+        //     spread: ,
+        //     id: 1,
+        // };
+
         let agent = EvacueeAgent {
             id: 2,
-            lc: 0.5,
-            ld: 0.5,
+            lc: self.initial_config.lc.unwrap_or_else(|| rng.gen()),
+            ld: self.initial_config.ld.unwrap_or_else(|| rng.gen()),
         };
 
         // Update on the non visual feature does not copy between the state
@@ -795,7 +836,7 @@ impl State for CellGrid {
         schedule.schedule_repeating(Box::new(agent), 0., 1);
 
         // ================ PLOTS ================
-        #[cfg(not(feature = "bayesian"))]
+        #[cfg(not(any(feature = "bayesian", feature = "ga_search")))]
         {
             addplot!(
                 "Escaped".to_owned(),

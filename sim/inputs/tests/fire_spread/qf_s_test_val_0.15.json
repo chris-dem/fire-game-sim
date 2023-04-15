@@ -1,0 +1,33 @@
+{
+    "dim": [
+        51,
+        51
+    ],
+    "param_seed": 20,
+    "sim_type": "Total",
+    "setup": {
+        "evac_number": 221,
+        "fire_spread": 0.15,
+        "lc": 0.8602569771050742,
+        "ld": 0.11687442040297627
+    },
+    "fire": {
+        "movement": {
+            "ClosestDistance": 0.8872879034656469
+        },
+        "aspiration": {
+            "LogAspiration": 0.16853919542605178
+        },
+        "ratio": {
+            "Log": 0.9945839357104033
+        },
+        "reward_game": {
+            "RewardRoot": 0.23037045480759816
+        }
+    },
+    "escape": "TimeTracker",
+    "death": "AnnounceInput",
+    "static_input": {
+        "ClosestToExit": 1.9762036427266472
+    }
+}

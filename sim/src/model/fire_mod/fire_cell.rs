@@ -52,6 +52,19 @@ impl CellType {
         }
         rng.gen_bool(agent.transition(self, neigh).into())
     }
+
+    pub fn spread_with_number<T: Rng + ?Sized>(
+        &self,
+        agent: &impl Transition,
+        neigh: usize,
+        rng: &mut T,
+    ) -> bool {
+        if *self == CellType::Fire {
+            // If the cell type is empty, just return
+            return false;
+        }
+        rng.gen_bool(agent.transition_with_number(self, neigh).into())
+    }
 }
 
 #[cfg(test)]

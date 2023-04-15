@@ -58,21 +58,20 @@ impl FireInfluence {
             * self.movement.get_dynamic_effect()
     }
 
-    #[cfg(any(feature = "visualization", feature = "visualization_wasm"))]
-    pub fn calculcate_rewards(&self, n: usize, point: &Loc, reward_b: f32) -> RSTP {
-        let d = self.fire_state.closest_point(point).unwrap_or(0.5).sqrt();
-        let r_t = self
-            .ratio
-            .calculate_ratio(self.fire_state.closest_point(point).unwrap_or(0.5)); // If there are no points we set it to its smallest possible value
-                                                                                   // fh.curr_line.ratio.update(r_t);
-        strategy_rewards(n, r_t, reward_b)
-    }
+    // #[cfg(any(feature = "visualization", feature = "visualization_wasm"))]
+    // pub fn calculcate_rewards(&self, n: usize, point: &Loc, reward_b: f32) -> RSTP {
+    //     let d = self.fire_state.closest_point(point).unwrap_or(0.5).sqrt();
+    //     let r_t = self
+    //         .ratio
+    //         .calculate_ratio(self.fire_state.closest_point(point).unwrap_or(0.5)); // If there are no points we set it to its smallest possible value
+    //                                                                                // fh.curr_line.ratio.update(r_t);
+    //     strategy_rewards(n, r_t, reward_b)
+    // }
 
-    #[cfg(not(any(feature = "visualization", feature = "visualization_wasm")))]
     pub fn calculcate_rewards(&self, n: usize, point: &Loc, reward_b: f32) -> RSTP {
         let d = self.fire_state.closest_point(point).unwrap_or(0.5).sqrt();
         let r_t = self.ratio.calculate_ratio(d); // If there are no points we set it to its smallest possible value
-        #[cfg(not(any(feature = "bayesian")))]
+        #[cfg(not(any(feature = "bayesian", feature = "ga_search")))]
         {
             use krabmaga::{plot, *};
 
@@ -98,19 +97,15 @@ impl FireInfluence {
     }
 }
 
-#[cfg(all(
-    test,
-    not(any(feature = "visualization", feature = "visualization_wasm"))
-))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
 
-    use crate::model::evacuee_mod::{
-        fire_influence::{fire_influence::FireInfluence, frontier::MockFrontierStructure},
-        strategies::reward_strategy::MockRewardStrategy,
+    use crate::model::evacuee_mod::fire_influence::{
+        fire_influence::FireInfluence, frontier::MockFrontierStructure,
     };
     use mockall::predicate;
 
