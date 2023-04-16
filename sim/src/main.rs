@@ -104,7 +104,7 @@ fn main() -> Result<()> {
         .append(true)
         .open("output_eval/bayesian_res.txt")?;
 
-    let iterations: usize = 10;
+    let iterations: usize = 25;
     for i in 0..10 {
         println!("In iteration {i}");
         let (x, y) = bayesian_search!(init_parameters, objective, get_points, iterations);

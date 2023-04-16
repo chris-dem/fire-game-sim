@@ -7,6 +7,7 @@ pub mod file_handling;
 pub mod fire_mod;
 pub mod ga_search;
 pub mod input_handling;
+pub mod lerp;
 pub mod misc;
 pub mod search;
 pub mod state;

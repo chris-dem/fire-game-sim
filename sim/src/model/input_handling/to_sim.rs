@@ -7,7 +7,7 @@ use crate::model::{
     evacuee_mod::{
         fire_influence::{
             dynamic_influence::{ClosestDistance, DynamicInfluence},
-            fire_influence::FireInfluence,
+            fire_influence::{FireInfluence, MAX_REWARD},
             frontier::{Frontier, FrontierStructure},
         },
         static_influence::{ExitInfluence, StaticInfluence},
@@ -17,6 +17,7 @@ use crate::model::{
             reward_strategy::{InverseLogRoot, RewardStrategy, RootReward},
         },
     },
+    lerp::equations::LerpStruct,
     // file_handling::file_handler::FileHandler,
     misc::misc_func::Loc,
     state::{CellGrid, InitialConfig},
@@ -80,45 +81,36 @@ impl ToSimulationStruct for AspirationInput {
 }
 
 impl ToSimulationStruct for RatioInput {
-    type T = Box<dyn RatioStrategy + Send>;
+    type T = LerpStruct;
 
-    type P = ();
+    type P = f32;
 
-    fn to_struct(&self, rng: &mut dyn RngCore, _params: &Self::P) -> Self::T {
-        match self {
-            RatioInput::Root(e) => {
-                let e = e.unwrap_or_else(|| rng.gen());
-                Box::new(RootDist(e))
-            }
-            RatioInput::Log(e) => {
-                let e = e.unwrap_or_else(|| rng.gen());
-                Box::new(LogDist(e))
-            }
-            RatioInput::Id(e) => {
-                let e = e.unwrap_or_else(|| rng.gen());
-                Box::new(IDdist(e))
-            }
-        }
+    fn to_struct(&self, rng: &mut dyn RngCore, params: &Self::P) -> Self::T {
+        LerpStruct::new(
+            0.,
+            *params,
+            0.,
+            MAX_REWARD,
+            self.0.influence.unwrap_or_else(|| rng.gen()),
+            self.0.equation,
+        )
     }
 }
 
 impl ToSimulationStruct for RewardGameInput {
-    type T = Box<dyn RewardStrategy + Send>;
+    type T = LerpStruct;
 
-    type P = (f32, f32);
+    type P = f32;
 
     fn to_struct(&self, rng: &mut dyn RngCore, params: &Self::P) -> Self::T {
-        match self {
-            Self::InvLogRoot(e) => {
-                let e = e.unwrap_or_else(|| rng.gen());
-                Box::new(InverseLogRoot(e, 10.0f32.ln_1p()))
-            }
-            Self::RewardRoot(e) => {
-                let e = e.unwrap_or_else(|| rng.gen());
-                let max_dist = (params.0.powi(2) + params.1.powi(2)).sqrt();
-                Box::new(RootReward(e, max_dist))
-            }
-        }
+        LerpStruct::new(
+            0.,
+            *params,
+            MAX_REWARD,
+            0.,
+            self.0.influence.unwrap_or_else(|| rng.gen()),
+            self.0.equation,
+        )
     }
 }
 
@@ -128,6 +120,7 @@ impl ToSimulationStruct for FireInput {
     type P = (usize, usize);
 
     fn to_struct(&self, rng: &mut dyn RngCore, params: &Self::P) -> Self::T {
+        let mx_dist = ((params.0 * params.0) as f32 + (params.1 * params.1) as f32).sqrt();
         FireInfluence {
             fire_area: 0,
             fire_state: self

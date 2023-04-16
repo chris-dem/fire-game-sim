@@ -10,7 +10,7 @@ use krabmaga::{engine::schedule::Schedule, *};
 pub const INIT_POPULATION: usize = 100;
 pub const MAX_MUTATION: f64 = 0.05;
 pub const REPETITIONS: u32 = 5;
-pub const DNA_SIZE: usize = 7;
+pub const DNA_SIZE: usize = 10;
 pub const DESIRED_FITNESS: f32 = 10.;
 pub const MAX_GENERATIONS: u32 = 500;
 pub const ALPHA: f32 = 0.1;

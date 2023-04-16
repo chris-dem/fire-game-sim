@@ -27,6 +27,7 @@ use super::evacuee_mod::strategies::aspiration_strategy::LogAspManip;
 use super::evacuee_mod::strategies::ratio_strategy::{LogDist, RootDist};
 use super::evacuee_mod::strategies::reward_strategy::RootReward;
 use super::evacuee_mod::strategy::{rules, Strategy};
+use super::input_handling::to_sim::ToSimulationStruct;
 // use super::file_handling::file_handler::FileHandler;
 use super::misc::misc_func::Loc;
 use super::search::*;
@@ -102,49 +103,52 @@ impl Default for CellGrid {
 impl CellGrid {
     #[allow(dead_code)]
     pub fn new_with_parameters(_r: usize, dna: &str) -> Self {
-        let search = InputSearch::from_string_vec(dna.split(";").map(|c| c.into()).collect_vec());
+        let search = InputSearch::from_string_vec(
+            dna.split(";").map(|c| c.into()).collect_vec(),
+            ((DEFAULT_WIDTH * DEFAULT_WIDTH) as f32 + (DEFAULT_HEIGHT * DEFAULT_HEIGHT) as f32)
+                .sqrt(),
+        );
         Self::new_training(search, DEFAULT_WIDTH, DEFAULT_HEIGHT)
     }
     pub fn new_training(search: InputSearch, nw: u32, nh: u32) -> Self {
+        todo!();
         // let nw = DEFAULT_WIDTH;
         // let nh = DEFAULT_HEIGHT;
-        let lc = search.lc;
-        let ld = search.ld;
-        let fire_spread = 0.2;
-        let asp_def = search.asp_infl;
-        let static_infl = search.static_infl;
-        let reward_r = search.reward_infl;
-        let root_r = search.rat_infl;
-        Self {
-            grid: DenseNumberGrid2D::new(nw as i32, nh as i32),
-            evac_grid: DenseNumberGrid2D::new(nw as i32, nh as i32),
-            dim: (nw, nh),
-            initial_config: InitialConfig {
-                evac_num: ((nw * nh) as f32 * 0.1) as usize,
-                lc: Some(lc),
-                ld: Some(ld),
-                fire_spread: Some(fire_spread),
-                ..Default::default()
-            },
-            fire_influence: FireInfluence {
-                fire_state: Box::new(Frontier::new(nw as usize)),
-                aspiration: Box::new(LogAspManip(asp_def)),
-                movement: Box::new(ClosestDistance(search.dynamc_infl)),
-                reward_game: Box::new(RootReward(
-                    reward_r,
-                    ((nw * nw) as f32 + (nh * nh) as f32).sqrt(),
-                )),
-                ratio: Box::new(RootDist(root_r)),
-                ..Default::default()
-            },
-            static_influence: Box::new(ExitInfluence::new(
-                static_infl,
-                &Loc(nw as i32 / 2, nh as i32),
-            )),
-            ..Default::default()
-        }
+        // let lc = search.lc;
+        // let ld = search.ld;
+        // let fire_spread = 0.2;
+        // let asp_def = search.asp_infl;
+        // let static_infl = search.static_infl;
+        // let reward_r = search.reward_infl;
+        // let rat_r = search.rat_infl;
+        // Self {
+        //     grid: DenseNumberGrid2D::new(nw as i32, nh as i32),
+        //     evac_grid: DenseNumberGrid2D::new(nw as i32, nh as i32),
+        //     dim: (nw, nh),
+        //     initial_config: InitialConfig {
+        //         evac_num: ((nw * nh) as f32 * 0.1) as usize,
+        //         lc: Some(lc),
+        //         ld: Some(ld),
+        //         fire_spread: Some(fire_spread),
+        //         ..Default::default()
+        //     },
+        //     fire_influence: FireInfluence {
+        //         fire_state: Box::new(Frontier::new(nw as usize)),
+        //         aspiration: asp_def,
+        //         movement: Box::new(ClosestDistance(search.dynamc_infl)),
+        //         reward_game: reward_r,
+        //         ratio: rat_r,
+        //         ..Default::default()
+        //     },
+        //     static_influence: Box::new(ExitInfluence::new(
+        //         static_infl,
+        //         &Loc(nw as i32 / 2, nh as i32),
+        //     )),
+        //     ..Default::default()
+        // }
     }
 }
+
 // }
 //     else {
 //         /// Grid in which the simulation will be running on
@@ -422,6 +426,7 @@ impl CellGrid {
         }
         // dbg!(dist, &competing, self.grid.get_value(loc))
         let dist_to_exit = self.static_influence.static_influence(&dist.into());
+        let reward_b = self.fire_influence.calculate_reward(dist_to_exit);
         #[cfg(not(any(
             feature = "visualization",
             feature = "visualization_wasm",
@@ -429,10 +434,6 @@ impl CellGrid {
             feature = "ga_search"
         )))]
         {
-            let reward_b = self
-                .fire_influence
-                .reward_game
-                .calculate_reward(dist_to_exit);
             plot!(
                 "RewardGameDistance".to_owned(),
                 "series".to_owned(),
@@ -467,7 +468,7 @@ impl CellGrid {
             .map(|e| {
                 (
                     self.fire_influence
-                        .calculcate_rewards(n, &Loc(e.x, e.y), dist_to_exit),
+                        .calculcate_rewards(n, &Loc(e.x, e.y), reward_b),
                     e,
                 )
             })

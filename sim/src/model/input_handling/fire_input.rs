@@ -1,4 +1,9 @@
+use krabmaga::Distribution;
+use lerp::Lerp;
+use rand_distr::Standard;
 use serde::Deserialize;
+
+use crate::model::lerp::equations::Equation;
 
 // use super::import::FixedOrRandom;
 
@@ -28,14 +33,18 @@ pub enum AspirationInput {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub enum RatioInput {
-    Root(Option<f32>),
-    Log(Option<f32>),
-    Id(Option<f32>),
-}
+pub struct RatioInput(pub LerpInput);
 
 #[derive(Debug, Clone, Deserialize)]
-pub enum RewardGameInput {
-    InvLogRoot(Option<f32>),
-    RewardRoot(Option<f32>),
+pub struct RewardGameInput(pub LerpInput);
+// #[derive(Debug, Clone, Deserialize)]
+// pub enum RewardGameInput {
+//     InvLogRoot(Option<f32>),
+//     RewardRoot(Option<f32>),
+// }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LerpInput {
+    pub influence: Option<f32>,
+    pub equation: Equation,
 }
