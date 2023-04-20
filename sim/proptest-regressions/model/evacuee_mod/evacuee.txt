@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 7f37f5de1bb596ed7bb6843d8885c2bdeea4042a74440144a49d6b70f7174071 # shrinks to arr = [Loc(0, 0), Loc(0, 0), Loc(0, 0), Loc(0, 0), Loc(0, 0), Loc(0, 0), Loc(0, 0), Loc(0, 0)], exit = Loc(4, 2)

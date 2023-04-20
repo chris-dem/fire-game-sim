@@ -11,11 +11,7 @@ use crate::model::{
             frontier::{Frontier, FrontierStructure},
         },
         static_influence::{ExitInfluence, StaticInfluence},
-        strategies::{
-            aspiration_strategy::{AspirationStrategy, LogAspManip, RootAsp},
-            ratio_strategy::{IDdist, LogDist, RatioStrategy, RootDist},
-            reward_strategy::{InverseLogRoot, RewardStrategy, RootReward},
-        },
+        strategies::aspiration_strategy::{AspirationStrategy, LogAspManip, RootAsp},
     },
     lerp::equations::LerpStruct,
     // file_handling::file_handler::FileHandler,
@@ -130,10 +126,8 @@ impl ToSimulationStruct for FireInput {
                 .unwrap_or_else(|| Box::new(Frontier::new(params.0))),
             aspiration: self.aspiration.to_struct(rng, &()),
             movement: self.movement.to_struct(rng, &()),
-            ratio: self.ratio.to_struct(rng, &()),
-            reward_game: self
-                .reward_game
-                .to_struct(rng, &(params.0 as f32, params.1 as f32)),
+            ratio: self.ratio.to_struct(rng, &mx_dist),
+            reward_game: self.reward_game.to_struct(rng, &mx_dist),
         }
     }
 }

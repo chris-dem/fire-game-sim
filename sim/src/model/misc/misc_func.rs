@@ -1,3 +1,4 @@
+use approx::Relative;
 use krabmaga::engine::location::Int2D;
 use rand_distr::num_traits::Pow;
 
@@ -24,11 +25,9 @@ pub fn round(s: f64, dec: u8) -> f64 {
     (s * b).round() / b
 }
 
-// /// Implementation of $f(x) = 1 / (x + 1)$
-// #[inline]
-// pub fn inverse_plus_one(val: f32) -> f32 {
-//     (val + 1.).recip()
-// }
+pub fn relative_eq_close(x: f32, y: f32) -> bool {
+    Relative::default().epsilon(f32::EPSILON).eq(&x, &y)
+}
 
 /// Distance squared between two 2D locations
 #[inline]

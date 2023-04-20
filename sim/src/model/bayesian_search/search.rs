@@ -8,11 +8,11 @@ lazy_static! {
 }
 
 pub const ITERATIONS: usize = 50;
-pub const INIT_ELEMENTS: usize = 50;
+pub const INIT_ELEMENTS: usize = 250;
 pub const BATCH_SIZE: usize = 3000;
+pub const INITIAL_PARAMS: usize = INIT_ELEMENTS;
 
 pub fn init_parameters() -> Vec<Vec<f64>> {
-    const INITIAL_PARAMS: usize = 20;
     let mut ret = Vec::with_capacity(INITIAL_PARAMS);
     /* Non-sim params
      * lc
@@ -65,4 +65,25 @@ pub fn get_points(_x: &[Vec<f64>]) -> Vec<Vec<f64>> {
         .map(|_| InputSearch::generate_set_of_parameters(&mut *rng))
         .collect();
     trial_points
+}
+
+// proptest! {
+//     #[test]
+//     fn test_param_dims() {}
+// }
+
+#[cfg(test)]
+mod tests {
+    use crate::model::ga_search::ga_explore::DNA_SIZE;
+
+    use super::*;
+
+    use super::init_parameters;
+
+    #[test]
+    fn test_init_params_dims() {
+        let res = init_parameters();
+        assert_eq!(res.len(), INITIAL_PARAMS);
+        assert!(res.iter().all(|el| el.len() == DNA_SIZE))
+    }
 }

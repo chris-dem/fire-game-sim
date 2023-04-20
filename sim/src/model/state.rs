@@ -1,6 +1,6 @@
 use crate::model::fire_mod::fire_cell::*;
+use crate::model::misc::misc_func::round;
 use itertools::Itertools;
-use krabmaga::cfg_if::cfg_if;
 use krabmaga::engine::fields::field::Field;
 use krabmaga::engine::state::State;
 use krabmaga::engine::{fields::dense_number_grid_2d::DenseNumberGrid2D, location::Int2D};
@@ -12,7 +12,7 @@ use rand::prelude::*;
 use rand::RngCore;
 use rand_chacha::ChaChaRng;
 use serde::Deserialize;
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::HashSet;
 
 use super::death::{Announcer, DeathHandler};
@@ -23,11 +23,7 @@ use super::evacuee_mod::fire_influence::dynamic_influence::ClosestDistance;
 use super::evacuee_mod::fire_influence::fire_influence::FireInfluence;
 use super::evacuee_mod::fire_influence::frontier::Frontier;
 use super::evacuee_mod::static_influence::{ExitInfluence, StaticInfluence};
-use super::evacuee_mod::strategies::aspiration_strategy::LogAspManip;
-use super::evacuee_mod::strategies::ratio_strategy::{LogDist, RootDist};
-use super::evacuee_mod::strategies::reward_strategy::RootReward;
-use super::evacuee_mod::strategy::{rules, Strategy};
-use super::input_handling::to_sim::ToSimulationStruct;
+use super::evacuee_mod::strategy::rules;
 // use super::file_handling::file_handler::FileHandler;
 use super::misc::misc_func::Loc;
 use super::search::*;
@@ -111,87 +107,41 @@ impl CellGrid {
         Self::new_training(search, DEFAULT_WIDTH, DEFAULT_HEIGHT)
     }
     pub fn new_training(search: InputSearch, nw: u32, nh: u32) -> Self {
-        todo!();
-        // let nw = DEFAULT_WIDTH;
-        // let nh = DEFAULT_HEIGHT;
-        // let lc = search.lc;
-        // let ld = search.ld;
-        // let fire_spread = 0.2;
-        // let asp_def = search.asp_infl;
-        // let static_infl = search.static_infl;
-        // let reward_r = search.reward_infl;
-        // let rat_r = search.rat_infl;
-        // Self {
-        //     grid: DenseNumberGrid2D::new(nw as i32, nh as i32),
-        //     evac_grid: DenseNumberGrid2D::new(nw as i32, nh as i32),
-        //     dim: (nw, nh),
-        //     initial_config: InitialConfig {
-        //         evac_num: ((nw * nh) as f32 * 0.1) as usize,
-        //         lc: Some(lc),
-        //         ld: Some(ld),
-        //         fire_spread: Some(fire_spread),
-        //         ..Default::default()
-        //     },
-        //     fire_influence: FireInfluence {
-        //         fire_state: Box::new(Frontier::new(nw as usize)),
-        //         aspiration: asp_def,
-        //         movement: Box::new(ClosestDistance(search.dynamc_infl)),
-        //         reward_game: reward_r,
-        //         ratio: rat_r,
-        //         ..Default::default()
-        //     },
-        //     static_influence: Box::new(ExitInfluence::new(
-        //         static_infl,
-        //         &Loc(nw as i32 / 2, nh as i32),
-        //     )),
-        //     ..Default::default()
-        // }
+        let lc = search.lc;
+        let ld = search.ld;
+        let fire_spread = 0.2;
+        let asp_def = search.asp_infl;
+        let static_infl = search.static_infl;
+        let reward_r = search.reward_infl;
+        let rat_r = search.rat_infl;
+        Self {
+            grid: DenseNumberGrid2D::new(nw as i32, nh as i32),
+            evac_grid: DenseNumberGrid2D::new(nw as i32, nh as i32),
+            dim: (nw, nh),
+            initial_config: InitialConfig {
+                evac_num: ((nw * nh) as f32 * 0.1) as usize,
+                lc: Some(lc),
+                ld: Some(ld),
+                fire_spread: Some(fire_spread),
+                ..Default::default()
+            },
+            fire_influence: FireInfluence {
+                fire_state: Box::new(Frontier::new(nw as usize)),
+                aspiration: asp_def,
+                movement: Box::new(ClosestDistance(search.dynamc_infl)),
+                reward_game: reward_r,
+                ratio: rat_r,
+
+                ..Default::default()
+            },
+            static_influence: Box::new(ExitInfluence::new(
+                static_infl,
+                &Loc(nw as i32 / 2, nh as i32),
+            )),
+            ..Default::default()
+        }
     }
 }
-
-// }
-//     else {
-//         /// Grid in which the simulation will be running on
-//         /// The way the simulation will work is to imploy an external agent in which he will take control of the cells in the simulation.
-//         ///
-//         /// Holds current step size, grid, dimensions and initial configuration
-//         pub struct CellGrid {
-//             pub simulation_type: SimType,
-//             pub iteration: u16,
-//             pub step: u64,
-//             pub param_seed : Option<u64>,
-//             pub grid: DenseNumberGrid2D<CellType>,
-//             pub evac_grid: DenseNumberGrid2D<EvacueeCell>,
-//             pub dim: (u32, u32),
-//             pub initial_config: InitialConfig,
-//             pub fire_influence: FireInfluence,
-//             pub escape_handler: Box<dyn EscapeHandler<EvacTime> + Send>,
-//             pub death_handler: Box<dyn DeathHandler + Send>,
-//             pub static_influence: Box<dyn StaticInfluence + Send>,
-//             pub output_vars : OutputVariables,
-//         }
-//         impl Default for CellGrid {
-//             fn default() -> Self {
-//                 Self {
-//                     step: 0,
-//                     iteration: 0,
-//                     simulation_type: SimType::Total,
-//                     grid: DenseNumberGrid2D::new(DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
-//                     evac_grid: DenseNumberGrid2D::new(DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
-//                     dim: (DEFAULT_WIDTH, DEFAULT_HEIGHT),
-//                     initial_config: Default::default(),
-//                     static_influence: Box::new(ExitInfluence::default()),
-//                     death_handler: Box::new(Announcer::default()),
-//                     escape_handler: Box::new(TimeEscape::default()),
-//                     fire_influence: Default::default(),
-//                     param_seed : None,
-//                     output_vars  : Default::default(),
-//                 }
-//             }
-//         }
-
-//     }
-// }
 
 impl fmt::Display for CellGrid {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -767,7 +717,6 @@ impl State for CellGrid {
     #[cfg(any(feature = "visualization", feature = "visualization_wasm"))]
     fn init(&mut self, schedule: &mut krabmaga::engine::schedule::Schedule) {
         use crate::visualization::exit_agent::ExitAgent;
-
         self.iteration += 1;
         let mut rng = krand::thread_rng();
         let mut holder = None;
@@ -776,16 +725,18 @@ impl State for CellGrid {
             holder.as_mut().unwrap()
         });
         self.reset();
-        self.set_intial(&mut rng);
-        let fire_rules = FireRules {
-            spread: self.initial_config.fire_spread.unwrap_or_else(|| rng.gen()),
-            id: 1,
-        };
+        let (x, y) = self.set_intial(&mut rng);
+        let fire_rules = FireRules::new(
+            self.dim.1 as usize * self.dim.0 as usize,
+            1,
+            self.initial_config.fire_spread.unwrap_or_else(|| rng.gen()),
+            (x as u32 * self.dim.1 + y as u32) as usize,
+        );
+
         let evac_agent = EvacueeAgent {
-            //TODO
             id: 2,
-            lc: 0.5,
-            ld: 0.5,
+            lc: self.initial_config.lc.unwrap_or_else(|| rng.gen()),
+            ld: self.initial_config.ld.unwrap_or_else(|| rng.gen()),
         };
 
         // Update on the non visual feature does not copy between the state
@@ -811,17 +762,12 @@ impl State for CellGrid {
         let (x, y) = self.set_intial(&mut rng);
         let cnt = RefCell::new(0usize);
         self.evac_grid.iter_values(|_, _| *cnt.borrow_mut() += 1);
-        // TODO Param seed implementation
-        // Only thing really left to do is start generating resultsz\
         let fire_rules = FireRules::new(
             self.dim.1 as usize * self.dim.0 as usize,
             1,
             self.initial_config.fire_spread.unwrap_or_else(|| rng.gen()),
             (x as u32 * self.dim.1 + y as u32) as usize,
         );
-        //     spread: ,
-        //     id: 1,
-        // };
 
         let agent = EvacueeAgent {
             id: 2,

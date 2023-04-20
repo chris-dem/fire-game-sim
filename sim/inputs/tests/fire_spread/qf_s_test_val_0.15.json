@@ -19,10 +19,12 @@
             "LogAspiration": 0.16853919542605178
         },
         "ratio": {
-            "Log": 0.9945839357104033
+            "influence": 0.9945839357104033,
+            "equation": "Linear"
         },
         "reward_game": {
-            "RewardRoot": 0.23037045480759816
+            "influence": 0.23037045480759816,
+            "equation": "Smooth"
         }
     },
     "escape": "TimeTracker",

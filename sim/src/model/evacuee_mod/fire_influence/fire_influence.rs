@@ -1,12 +1,6 @@
-use lerp::LerpIterator;
-
 use crate::model::{
     evacuee_mod::{
-        strategies::{
-            aspiration_strategy::{AspirationStrategy, LogAspManip},
-            ratio_strategy::{IDdist, RatioStrategy, RootDist},
-            reward_strategy::{InverseLogRoot, RewardStrategy},
-        },
+        strategies::aspiration_strategy::{AspirationStrategy, LogAspManip},
         strategy::{strategy_rewards, RSTP},
     },
     lerp::equations::LerpStruct,
@@ -15,7 +9,7 @@ use crate::model::{
     state::{DEFAULT_HEIGHT, DEFAULT_WIDTH},
 };
 
-pub const MAX_REWARD: f32 = 5.;
+pub const MAX_REWARD: f32 = 20.;
 
 use super::{
     dynamic_influence::{ClosestDistance, DynamicInfluence},
@@ -57,14 +51,14 @@ impl Default for FireInfluence {
                 0.,
                 mx_dist,
                 0.,
-                5.,
+                MAX_REWARD,
                 1.,
                 crate::model::lerp::equations::Equation::Linear,
             ),
             reward_game: LerpStruct::new(
                 0.,
                 mx_dist,
-                5.,
+                MAX_REWARD,
                 0.,
                 1.,
                 crate::model::lerp::equations::Equation::Linear,
@@ -131,117 +125,91 @@ impl FireInfluence {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use approx::assert_relative_eq;
-//     use rand::prelude::*;
-//     use rand_chacha::ChaCha8Rng;
+#[cfg(test)]
+mod tests {
+    use crate::model::{
+        evacuee_mod::fire_influence::frontier::MockFrontierStructure,
+        misc::misc_func::relative_eq_close,
+    };
 
-//     use crate::model::evacuee_mod::fire_influence::{
-//         fire_influence::FireInfluence, frontier::MockFrontierStructure,
-//     };
-//     use mockall::predicate;
+    use super::*;
+    use crate::model::lerp::equations::*;
+    use lerp::num_traits::Pow;
+    use mockall::{
+        predicate::{self, eq},
+        Sequence,
+    };
+    use proptest::prelude::*;
 
-//     use crate::model::evacuee_mod::strategies::{
-//         aspiration_strategy::MockAspirationStrategy, ratio_strategy::MockRatioStrategy,
-//     };
+    proptest! {
+        #[test]
+        fn test_movement_influence(x in 0i32..100, y in 0i32..100) {
+            let mut frontier = MockFrontierStructure::new();
 
-//     #[test]
-//     fn empty_fire_influence() {
-//         let mut frontier = MockFrontierStructure::new();
+            frontier.expect_closest_point()
+                    .returning(|Loc(x,y) : &Loc| Some((x + y) as f32))
+                    .once();
 
-//         frontier.expect_closest_point().return_const(None);
+            let fire_infl = FireInfluence {
+                fire_state : Box::new(frontier),
+                ..Default::default()
+            };
+            let dist = fire_infl.get_movement_influence(&Loc(x,y));
+            prop_assert!(relative_eq_close(dist, ((x + y) as f32).sqrt()))
+        }
 
-//         let mut ratio_un = MockRatioStrategy::new();
+        #[test]
+        fn test_rewards(x in 0i32..100, y in 0i32..10, b in 0.1..50.0f32, n in 1..=4usize) {
+            let mut frontier = MockFrontierStructure::new();
 
-//         ratio_un
-//             .expect_calculate_ratio()
-//             .with(predicate::eq(0.5))
-//             .returning(|c| c);
+            frontier
+                .expect_closest_point()
+                .returning(|Loc(x, y): &Loc| Some((x + y) as f32))
+                .once();
 
-//         let fire = FireInfluence {
-//             fire_state: Box::new(frontier),
-//             ratio: Box::new(ratio_un),
-//             ..Default::default()
-//         };
+            let ratio = LerpStruct::new(0., 100., 0., MAX_REWARD, 1., Equation::EaseIn);
+            let fire_infl = FireInfluence {
+                ratio: ratio.clone(),
+                fire_state: Box::new(frontier),
+                ..Default::default()
+            };
+            let r = ratio.eval((x as f32 + y as f32).sqrt());
+            let vals = (b / n as f32,  0., b * (1. - r / n as f32), -(b * r) / n as f32);
+            let vals_fire = fire_infl.calculcate_rewards(n, &Loc(x, y), b);
+            prop_assert!(relative_eq_close(vals.0, vals_fire.0));
+            prop_assert!(relative_eq_close(vals.1, vals_fire.1));
+            prop_assert!(relative_eq_close(vals.2, vals_fire.2));
+            prop_assert!(relative_eq_close(vals.3, vals_fire.3));
+        }
+        #[test]
+        fn fire_update(x in 1..100i32, y in 1..100i32) {
+            let mut frontier = MockFrontierStructure::new();
 
-//         assert_relative_eq!(fire.calculate_aspiration(), 0.);
-//         assert_relative_eq!(fire.get_movement_influence(&Loc(1, 1)), 0.5);
-//         assert_eq!(
-//             fire.calculcate_rewards(3, &Loc(1, 1), 1.),
-//             (1. / 3. as f32, 0. as f32, (1. - 0.5 / 3.), -0.5 / 3. as f32)
-//         );
-//     }
+            let mut seq = Sequence::new();
+            frontier
+                .expect_closest_point()
+                .return_const( None)
+                .times(1)
+                .in_sequence(&mut seq);
+            frontier
+                .expect_on_fire_update()
+                .times(1)
+                .with(predicate::eq(Loc(x, y)))
+                .in_sequence(&mut seq);
+            frontier
+                .expect_closest_point()
+                .times(1)
+                .returning(move |Loc(a, b): &Loc| Some((*a - x).pow(2) as f32 + (b - y).pow(2) as f32))
+                .in_sequence(&mut seq);
+            let mut fire_infl = FireInfluence {
+                fire_state: Box::new(frontier),
+                ..Default::default()
+            };
 
-//     #[test]
-//     fn one_fire_cell_influence_mocked() {
-//         let mut front_st = MockFrontierStructure::new();
-
-//         front_st
-//             .expect_closest_point()
-//             .with(predicate::eq(Loc(1, 1)))
-//             .returning(|Loc(a, b): &Loc| Some((*a + *b) as f32));
-
-//         front_st.expect_on_fire_update().return_const(());
-
-//         let mut asp_st = MockAspirationStrategy::new();
-
-//         asp_st.expect_calculate_asp().returning(|c| 10. * c as f32);
-
-//         let mut ratio_st = MockRatioStrategy::new();
-
-//         ratio_st.expect_calculate_ratio().returning(|c| c.exp());
-
-//         let mut fire = FireInfluence {
-//             fire_state: Box::new(front_st),
-//             aspiration: Box::new(asp_st),
-//             ratio: Box::new(ratio_st),
-//             ..Default::default()
-//         };
-
-//         fire.on_step(&Loc(0, 0));
-
-//         assert_relative_eq!(fire.calculate_aspiration(), 10.);
-//         assert_relative_eq!(fire.get_movement_influence(&Loc(1, 1)), 1.);
-//         assert_eq!(
-//             fire.calculcate_rewards(3, &Loc(1, 1), 1.),
-//             (
-//                 1. / 3. as f32,
-//                 0. as f32,
-//                 (1. - 2.0f32.exp() / 3.),
-//                 -2.0f32.exp() / 3. as f32
-//             )
-//         );
-//     }
-
-//     #[test]
-//     fn mock_trivial() {
-//         let mut rng = ChaCha8Rng::seed_from_u64(2);
-
-//         let mut fire = FireInfluence::default();
-//         let rn = rng.gen_range(5..=10);
-
-//         // Locations:
-//         // 9,6
-//         // 6,2
-//         // 8,3
-//         // 7,3
-//         // 9,2
-//         // 3,8
-
-//         for _ in 0..rn {
-//             let x = rng.gen_range(2..10);
-//             let y = rng.gen_range(2..10);
-//             fire.on_step(&Loc(x, y));
-//         }
-
-//         assert_relative_eq!(fire.calculate_aspiration(), 6.0f32.ln_1p() * 2.);
-//         assert_relative_eq!(fire.get_movement_influence(&Loc(3, 9)), 0.5);
-//         assert_relative_eq!(fire.get_movement_influence(&Loc(7, 10)), 10.);
-//         assert_eq!(
-//             fire.calculcate_rewards(2, &Loc(6, 6), 1.),
-//             (1. / 2., 0., (1. - 3.0 / 2.), -3. / 2.)
-//         );
-//     }
-// }
+            assert_eq!(fire_infl.fire_state.closest_point(&Loc(x, y)), None);
+            fire_infl.on_step(&Loc(x, y));
+            assert_eq!(fire_infl.fire_area, 1);
+            assert_eq!(fire_infl.fire_state.closest_point(&Loc(x, y)), Some(0.));
+        }
+    }
+}

@@ -1,16 +1,17 @@
 use core::panic;
+use proptest::prelude::*;
 use rand::prelude::*;
 use rand::seq::SliceRandom;
 use std::sync::RwLock;
 
-use crate::model::{search::InputSearch, state::CellGrid};
+use crate::model::{lerp::equations::Equation, search::InputSearch, state::CellGrid};
 use itertools::Itertools;
 use krabmaga::{engine::schedule::Schedule, *};
 
 pub const INIT_POPULATION: usize = 100;
 pub const MAX_MUTATION: f64 = 0.05;
 pub const REPETITIONS: u32 = 5;
-pub const DNA_SIZE: usize = 10;
+pub const DNA_SIZE: usize = 11;
 pub const DESIRED_FITNESS: f32 = 10.;
 pub const MAX_GENERATIONS: u32 = 500;
 pub const ALPHA: f32 = 0.1;
@@ -18,6 +19,11 @@ pub const ALPHA: f32 = 0.1;
 lazy_static! {
     pub static ref TEMPERATURE: Arc<RwLock<u32>> = Arc::new(RwLock::new(1));
     pub static ref RNG: Mutex<StdRng> = Mutex::new(StdRng::from_entropy());
+}
+
+pub enum DNAStruct {
+    Float(f32),
+    Eq(Equation),
 }
 
 /// Maximum comparator
@@ -65,7 +71,7 @@ pub fn crossover(population: &mut Vec<String>) {
     }
     let mut new_population = Vec::with_capacity(INIT_POPULATION);
     for _ in 0..INIT_POPULATION {
-        let (par1, par2): (Vec<f32>, Vec<f32>) = population
+        let (par1, par2): (Vec<_>, Vec<_>) = population
             .iter()
             .enumerate()
             .collect_vec()
@@ -84,13 +90,18 @@ pub fn crossover(population: &mut Vec<String>) {
             par1.into_iter()
                 .zip(par2)
                 .enumerate()
-                .map(|(ind, (el1, el2))| {
-                    let (top_val, small_val) = maxmin(ind);
-                    let rang = (el2 - el1).abs();
-                    let pmin = (el2.min(top_val) - rang * ALPHA).max(small_val);
-                    let pmax = (el2.max(small_val) + rang * ALPHA).min(top_val);
-                    RNG.lock().unwrap().gen_range(pmin..=pmax).to_string()
-                })
+                .map(
+                    |(ind, (el2, el1))| match maxmin(ind).expect("Unreachable") {
+                        Ok((top_val, small_val)) => {
+                            let rang = (el2 - el1).abs();
+                            let pmin = (el2.min(top_val) - rang * ALPHA).max(small_val);
+                            let pmax = (el2.max(small_val) + rang * ALPHA).min(top_val);
+                            RNG.lock().unwrap().gen_range(pmin..=pmax).to_string()
+                        }
+                        Err(TypeEquation::Lerp) => RNG.lock().unwrap().gen_range(0..=3).to_string(),
+                        Err(TypeEquation::Asp) => RNG.lock().unwrap().gen_range(0..=1).to_string(),
+                    },
+                )
                 .collect::<Vec<_>>()
                 .join(";"),
         );
@@ -125,12 +136,19 @@ pub fn fitness(computed_ind: &mut Vec<(CellGrid, Schedule)>) -> f32 {
     alive_num + 0.5 * caseall + 2. * caseone - 1.5 * casenone // Improve function
 }
 
-fn maxmin(val: usize) -> (f32, f32) {
+enum TypeEquation {
+    Lerp,
+    Asp,
+}
+
+fn maxmin(val: usize) -> Option<Result<(f32, f32), TypeEquation>> {
     match val {
-        0..=1 => (1., 0.005),
-        2..=4 => (1., 0.),
-        5..=6 => (2., 0.5),
-        _ => unreachable!("Unreachable code"),
+        0 | 1 | 3 | 5 | 7 => Some(Ok((1., 0.))),
+        8 | 9 => Some(Ok((3., 0.))),
+        10 => Some(Ok((100., 25.))),
+        4 | 6 => Some(Err(TypeEquation::Lerp)),
+        2 => Some(Err(TypeEquation::Asp)),
+        _ => None,
     }
 }
 
@@ -139,12 +157,17 @@ pub fn mutation(indiv: &mut String) {
         .split(";")
         .enumerate()
         .map(|(ind, c)| {
-            let (big, small) = maxmin(ind);
+            let res = maxmin(ind).expect("Index should be within range");
             let c = c.parse::<f32>().unwrap();
-            RNG.lock()
-                .unwrap()
-                .gen_range((c - ALPHA).max(small)..(c + ALPHA).min(big))
-                .to_string()
+            match res {
+                Ok((big, small)) => RNG
+                    .lock()
+                    .unwrap()
+                    .gen_range((c - ALPHA).max(small)..(c + ALPHA).min(big))
+                    .to_string(),
+                Err(TypeEquation::Lerp) => RNG.lock().unwrap().gen_range(0..4u8).to_string(),
+                Err(TypeEquation::Asp) => RNG.lock().unwrap().gen_range(0..2u8).to_string(),
+            }
         })
         .collect_vec()
         .join(";");
@@ -314,5 +337,9 @@ mod tests {
             });
             assert!(assertion)
         }
+    }
+
+    mod test_mutation {
+        use super::*;
     }
 }

@@ -36,12 +36,9 @@ impl Frontier {
         Self { trees }
     }
 
-    #[inline]
-    fn update(&mut self, Loc(x, y): &Loc) {
-        assert!(0 <= *x && (*x as usize) < self.trees.len());
-        // dbg!(Loc(x, y));
+    fn update(&mut self, Loc(x, y): &Loc) -> Option<bool> {
         let x = *x as usize;
-        self.trees[x].insert(*y);
+        self.trees.get_mut(x).map(|tree| tree.insert(*y))
     }
 
     fn nearest(&self, loc: &Loc) -> Option<f32> {
@@ -97,8 +94,41 @@ impl FrontierStructure for Frontier {
 #[cfg(test)]
 mod frontier_tests {
     use approx::assert_relative_eq;
+    use proptest::prelude::*;
 
     use super::*;
+
+    proptest! {
+        #[test]
+        fn test_not_tree(x in (-50i32..0).prop_union(50..100), y in any::<i32>()) {
+            let mut frontier = Frontier::new(50);
+            prop_assert_eq!(frontier.update(&Loc(x,y)),None);
+        }
+        #[test]
+        fn test_in_tree(x in (0..50), y in any::<i32>()) {
+            let mut frontier = Frontier::new(50);
+            prop_assert!(frontier.update(&Loc(x,y)).is_some());
+        }
+
+        #[test]
+        fn find_closest_dist(a in prop::array::uniform32((0..50, -50i32..50)), new_locs in prop::array::uniform10((0..50, -50i32..50))) {
+            let mut frontier = Frontier::new(50);
+            for (x,y) in a.iter() {
+                frontier.update(&Loc(*x,*y));
+            }
+
+            let from_frontier = new_locs.iter().map(|(x,y)| frontier.closest_point(&Loc(*x,*y)).unwrap());
+            let from_two_d = new_locs.iter().map(|(x,y)| {
+                let x = *x;
+                let y = *y;
+                a.iter().map(|(xa,ya)| (xa - x).pow(2) as f32 + (ya - y).pow(2) as f32).min_by(|a,b| a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal)).unwrap()
+            });
+
+            let arr = from_frontier.zip(from_two_d).all(|(a,b)| a == b);
+
+            prop_assert!(arr);
+        }
+    }
 
     #[test]
     fn frontier_empty() {

@@ -26,6 +26,7 @@ itertools = "0.10.5"
 krabmaga = {git = "https://github.com/krABMaga/krABMaga"}
 lerp = "0.4.0"
 mockall = "0.11.3"
+proptest = "1.1.0"
 rand = { version = "0.8.5", features = ["small_rng"] }
 rand_chacha = "0.3.1"
 rand_derive2 = "0.1.18"

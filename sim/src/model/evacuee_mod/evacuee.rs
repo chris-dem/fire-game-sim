@@ -7,7 +7,8 @@ use itertools::Itertools;
 use krabmaga::engine::agent::Agent;
 use krabmaga::engine::location::Int2D;
 use krabmaga::{rand as krand, Rng};
-use krand::RngCore;
+use krand::rngs::StdRng;
+use krand::{RngCore, SeedableRng};
 
 // Cannot be implemented as an agent, due to possible collisions in cells
 // Must consider the homoegenuious interaction between neighbouring cells
@@ -87,43 +88,88 @@ impl Agent for EvacueeAgent {
 
 #[cfg(test)]
 mod tests {
-    use approx::assert_relative_eq;
-
-    use crate::model::evacuee_mod::{
-        fire_influence::{
-            dynamic_influence::MockDynamicInfluence, frontier::MockFrontierStructure,
-        },
-        static_influence::MockStaticInfluence,
-    };
-
     use super::*;
+    use crate::model::{
+        evacuee_mod::{
+            fire_influence::{
+                dynamic_influence::MockDynamicInfluence, frontier::MockFrontierStructure,
+            },
+            static_influence::MockStaticInfluence,
+        },
+        misc::misc_func::relative_eq_close,
+    };
+    use proptest::prelude::*;
+    use rand::prelude::*;
 
-    #[test]
-    fn test_evaluate_on_empty_cell() {
-        let mut static_inf = MockStaticInfluence::new();
-        static_inf
-            .expect_static_influence()
-            .returning(|c| (c.x + c.y) as f32);
-        let mut dynamic_inf = MockDynamicInfluence::new();
-        dynamic_inf.expect_dynamic_influence().return_const(1.);
-        let static_inf = Box::new(static_inf);
-        let dynamic_inf = Box::new(dynamic_inf);
-        let front_struct = Box::new(MockFrontierStructure::new());
-        let fire_infl = FireInfluence {
-            fire_state: front_struct,
-            movement: dynamic_inf,
-            ..Default::default()
-        };
-        let evac_agent = EvacueeAgent::default();
-        let probs = evac_agent.calculate_probabilities(
-            &[Loc(1, 0), Loc(2, 1), Loc(3, 3)],
-            static_inf.as_ref(),
-            &fire_infl,
-        );
-        let arr = [1.0_f32.exp(), 3.0_f32.exp(), 6.0_f32.exp()];
-        let s = arr.iter().sum::<f32>();
-        assert_relative_eq!(probs[0], arr[0] / s);
-        assert_relative_eq!(probs[1], arr[1] / s);
-        assert_relative_eq!(probs[2], arr[2] / s);
+    proptest! {
+        #[test]
+        fn test_calculate_prop(arr in proptest::array::uniform8((0i32..50,0i32..50).prop_map(|(x,y)| Loc(x,y))), exit in (0i32..50, 0i32..50).prop_map(|(x,y)| Loc(x,y))) {
+            let evac = EvacueeAgent::default();
+            let mut stat = MockStaticInfluence::new();
+            stat.expect_static_influence()
+                .returning(move |Int2D {x,y} : &Int2D| {
+                    let exit = exit;
+                    ((*x - exit.0).abs() as f32 + (*y - exit.1).abs() as f32).ln_1p()
+                });
+            let fire_infl = FireInfluence::default();
+            let from_evac = evac.calculate_probabilities(&arr, &stat, &fire_infl);
+            let from_arr = arr.iter().map(|l| {
+                let s = stat.static_influence(&Into::into(*l));
+                let d = fire_infl.get_movement_influence(&Into::into(*l));
+                let arg = -s + d;
+                (arg.abs().sqrt() * arg.signum()).exp()
+            }).collect_vec();
+
+            let s : f32 = from_arr.iter().sum::<f32>();
+            let from_arr  : Vec<f32> = from_arr.into_iter().map(|x| x / s).collect_vec();
+            let x = from_evac.iter().zip(from_arr.iter()).all(|(a,b)|relative_eq_close(*a,*b));
+            prop_assert!(x);
+        }
+
+        #[test]
+        fn test_probability(lc in 0.0f32..1.0f32, ld in 0.0f32..1.0f32, prob_c in 0.0f32..1.0f32, prob_d in 0.0f32..1.0f32, st in -1.0f32..=1.0f32, strat in 0..=1u32) {
+            let mut strategy = if strat == 0 { crate::model::evacuee_mod::strategy::Strategy::Cooperative } else { crate::model::evacuee_mod::strategy::Strategy::Competitive };
+            let mut rng = StdRng::seed_from_u64(50);
+            let evac = EvacueeAgent {
+                id : 1,
+                lc,
+                ld
+            };
+
+            let mut evac_cell = EvacueeCell {
+                strategy,
+                x : 0,
+                y : 0,
+                pr_c : prob_c,
+                pr_d : prob_d,
+            };
+
+            evac.calculate_strategies(&mut evac_cell, &mut rng, st);
+            let mut pr_d = prob_d;
+            let mut pr_c = prob_c;
+            let mut rng = StdRng::seed_from_u64(50);
+            match strategy {
+                crate::model::evacuee_mod::strategy::Strategy::Competitive => {
+                    // ADOPT FOR COOP
+                    pr_d = calc_prob(pr_d,ld, st);
+                    if !rng.gen_bool(pr_d as f64) {
+                       strategy = crate::model::evacuee_mod::strategy::Strategy::Cooperative;
+                    }
+                }
+                crate::model::evacuee_mod::strategy::Strategy::Cooperative => {
+                    // ADOPT FOR COOP
+                    pr_c = calc_prob(pr_c, lc, st);
+                    if !rng.gen_bool(pr_c as f64) {
+                        strategy = crate::model::evacuee_mod::strategy::Strategy::Competitive;
+                    }
+                }
+            }
+
+            prop_assert_eq!(strategy, evac_cell.strategy);
+            prop_assert!(relative_eq_close(pr_c, evac_cell.pr_c));
+            prop_assert!(relative_eq_close(pr_d, evac_cell.pr_d));
+        }
+    
+    
     }
 }

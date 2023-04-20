@@ -43,7 +43,6 @@ impl Default for ExitInfluence {
     }
 }
 
-
 impl StaticInfluence for ExitInfluence {
     fn static_influence(&self, pos: &Int2D) -> f32 {
         distsq(&self.end_pos.into(), pos).sqrt()

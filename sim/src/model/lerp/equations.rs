@@ -1,6 +1,5 @@
 use lerp::Lerp;
 use serde::Deserialize;
-
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub enum Equation {
     Linear,
@@ -20,8 +19,20 @@ impl Equation {
             Equation::EaseOut => t * t,
         }
     }
+
+    #[inline]
+    pub fn from_u8(val: u8) -> Option<Self> {
+        match val {
+            0 => Some(Self::Linear),
+            1 => Some(Self::Smooth),
+            2 => Some(Self::EaseIn),
+            3 => Some(Self::EaseOut),
+            _ => None,
+        }
+    }
 }
 
+#[derive(Debug, Clone)]
 pub struct LerpStruct {
     input_limits: (f32, f32),
     output_limits: (f32, f32),
@@ -49,7 +60,7 @@ impl LerpStruct {
 
 #[cfg(test)]
 mod tests {
-    use super::LerpStruct;
+    use super::{Equation, LerpStruct};
 
     #[test]
     fn linear_test() {
@@ -106,5 +117,46 @@ mod tests {
         for (x, y) in inp.zip(val) {
             assert_eq!(y, lerp_struct.eval(x))
         }
+    }
+    mod prop_tests {
+        use super::*;
+        #[allow(unused_imports)]
+        use crate::model::misc::misc_func::relative_eq_close;
+        use lerp::Lerp;
+        use proptest::prelude::*;
+        #[allow(unused_imports)]
+        use std::f32::{MAX, MIN};
+
+        proptest! {
+            #[test]
+            fn test_linear(x in MIN..=MAX) {
+                let val = x.clamp(0.,10.) / 10.;
+                prop_assert!(relative_eq_close(val, Equation::EaseOut.eval(x, 0., 10.)))
+            }
+
+            #[test]
+            fn test_smooth(x in MIN..=MAX) {
+                let val = x.clamp(0.,10.) / 10.;
+                let in_lerp  = Equation::EaseIn.eval(x, 0., 10.);
+                let out_lerp = Equation::EaseOut.eval(x, 0., 10.);
+                prop_assert!(relative_eq_close(val * val  * (3. - 2. * val), Equation::Smooth.eval(x, 0., 10.)));
+                prop_assert!(relative_eq_close(in_lerp.lerp(out_lerp, val), Equation::Smooth.eval(x, 0., 10.)));
+            }
+
+            #[test]
+            fn test_ease_in(x in MIN..=MAX) {
+                let val = x.clamp(0.,10.) / 10.;
+                prop_assert!(relative_eq_close(1. - (1. - val).powi(2),Equation::EaseIn.eval(x, 0., 10.)))
+            }
+
+            #[test]
+            fn test_ease_out(x in MIN..=MAX) {
+                let val = x.clamp(0.,10.) / 10.;
+                prop_assert!(relative_eq_close(val.powi(2), Equation::EaseOut.eval(x, 0., 10.)))
+            }
+
+        }
+
+        proptest! {}
     }
 }

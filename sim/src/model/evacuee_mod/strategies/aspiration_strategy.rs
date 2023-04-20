@@ -31,7 +31,7 @@ impl Default for RootAsp {
 
 impl AspirationStrategy for RootAsp {
     fn calculate_asp(&self, numb_cells: usize) -> f32 {
-        self.0 * (numb_cells as f32).sqrt() / 3.
+        self.0 * (numb_cells as f32).sqrt()
     }
 }
 

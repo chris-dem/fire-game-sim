@@ -38,6 +38,21 @@ impl DynamicInfluence for ClosestDistance {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn test_distances(x in 0i32..100i32, y in 0i32..100) {
+            let mut mock_structure = MockFrontierStructure::new();
+
+            mock_structure
+                .expect_closest_point()
+                .returning(|Loc(x,y) : &Loc| Some(*x as f32 + *y as f32))
+                .once();
+            let dist = ClosestDistance::default();
+            prop_assert!(crate::model::misc::misc_func::relative_eq_close(dist.dynamic_influence(&Loc(x,y) ,&mock_structure), (x  as f32+ y as f32).sqrt()))
+        }
+    }
     use crate::model::{
         evacuee_mod::fire_influence::frontier::MockFrontierStructure, misc::misc_func::Loc,
     };

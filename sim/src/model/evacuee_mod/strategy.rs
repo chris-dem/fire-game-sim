@@ -50,7 +50,6 @@ pub fn rules(
     Box<dyn Iterator<Item = (f32, EvacueeCell)>>,
     Box<dyn Iterator<Item = (f32, EvacueeCell)>>,
 > {
-    // let asp = asp;
     match game_rules {
         RuleCase::AllCoop => {
             // if everyone is cooperating randomly shuffle the list
@@ -79,15 +78,10 @@ pub fn rules(
                     (s_x(w, asp, ret_w), el)
                 }), // .into_iter(),
             ))
-            // .collect())
         }
         RuleCase::Argument => Err(Box::new(
             competing.into_iter().map(move |(w, el)| {
-                let retw = if el.strategy == Strategy::Competitive {
-                    w.3
-                } else {
-                    0.
-                };
+                let retw = w.3;
                 (s_x(w, asp, retw), el)
             }), // .into_iter(),
         )),
@@ -129,6 +123,20 @@ impl fmt::Display for Strategy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{evacuee_mod::strategy::Strategy, misc::misc_func::relative_eq_close};
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn test_sx(s in (-10f32..10f32,-10f32..10f32,-10f32..10f32,-10f32..10f32), a in (0.5 ..10f32), idx in 0..4usize) {
+            let arr : [f32 ; 4] = [s.0,s.1, s.2,s.3];
+            let reward = arr[idx];
+            let mx = arr.iter().map(|el| (el - a).abs()).max_by(|a,b| a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal)).unwrap();
+            let el = s_x(s, a, reward);
+            prop_assert!(relative_eq_close(el, (reward - a) / mx))
+        }
+
+    }
 
     #[test]
     fn test_all_coop() {

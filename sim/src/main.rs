@@ -55,20 +55,15 @@ fn main() -> Result<()> {
 fn main() -> Result<()> {
     // Initialize the simulation and its visualization here.
 
-    use std::{fs, io::BufReader};
+    use std::fs;
 
     use clap::Parser;
     use krabmaga::{
         bevy::prelude::IntoSystem, engine::fields::dense_number_grid_2d::DenseNumberGrid2D,
         thread_rng, visualization::fields::number_grid_2d::BatchRender,
     };
-    use model::state::CellGrid;
 
-    use crate::model::{
-        evacuee_mod::evacuee_cell::EvacueeCell,
-        fire_mod::fire_cell::CellType,
-        input_handling::{import::ImportImproved, to_sim::ToSimulationStruct},
-    };
+    use crate::model::{evacuee_mod::evacuee_cell::EvacueeCell, fire_mod::fire_cell::CellType};
     let args = MyArgs::parse();
 
     let file_name = "fire_spread/f_s_test_val_0.1.json";
@@ -99,10 +94,8 @@ fn main() -> Result<()> {
 
     use crate::model::bayesian_search::search::{get_points, init_parameters, objective};
     println!("============ STARTING BAYESIAN OPTIMIZATION ============");
-    let mut op = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("output_eval/bayesian_res.txt")?;
+
+    let mut op = fs::File::create(&"output_eval/bayesian_opt.txt")?;
 
     let iterations: usize = 25;
     for i in 0..10 {
